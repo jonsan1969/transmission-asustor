@@ -33,34 +33,34 @@ jobs:
 
               if [ -f /opt/rh/devtoolset-10/enable ]; then
                 source /opt/rh/devtoolset-10/enable
-                set -ux
               else
                 DTS=$(ls -d /opt/rh/devtoolset-* 2>/dev/null | sort | tail -1 || true)
                 if [ -n "$DTS" ] && [ -f "$DTS/enable" ]; then
                   source "$DTS/enable"
                 fi
               fi
+              set -ux
 
               echo "=== COMPILER ==="
               gcc --version | head -1
               g++ --version | head -1
               gcc -dumpmachine
 
-              cat >/tmp/cxx17.cpp <<"EOF"
-              #include <iostream>
-              #include <optional>
-              #include <string_view>
-              #include <filesystem>
+              printf "%s\n" \
+                "#include <iostream>" \
+                "#include <optional>" \
+                "#include <string_view>" \
+                "#include <filesystem>" \
+                "int main() {" \
+                "  std::optional<int> value = 41;" \
+                "  std::string_view text = \"ASUSTOR modern ABI probe\";" \
+                "  std::filesystem::path p{\"/tmp\"};" \
+                "  std::cout << text << \" \" << (*value + 1) << \" \" << p.string() << \"\\n\";" \
+                "  return 0;" \
+                "}" > /tmp/cxx17.cpp
 
-              int main()
-              {
-                  std::optional<int> value = 41;
-                  std::string_view text = "ASUSTOR modern ABI probe";
-                  std::filesystem::path p{"/tmp"};
-                  std::cout << text << " " << (*value + 1) << " " << p.string() << "\\n";
-                  return 0;
-              }
-              EOF
+              echo "=== SOURCE ==="
+              cat /tmp/cxx17.cpp
 
               echo "=== BUILD C++17 ==="
               g++ -std=c++17 -O2 -march=x86-64 -mtune=generic \
