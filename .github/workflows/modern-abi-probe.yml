@@ -21,7 +21,8 @@ jobs:
             -w /work \
             quay.io/pypa/manylinux2014_x86_64 \
             /bin/bash -lc '
-              set -euxo pipefail
+              set -eo pipefail
+              export MANPATH="${MANPATH:-}"
 
               echo "=== BASE SYSTEM ==="
               cat /etc/os-release || true
@@ -32,6 +33,7 @@ jobs:
 
               if [ -f /opt/rh/devtoolset-10/enable ]; then
                 source /opt/rh/devtoolset-10/enable
+                set -ux
               else
                 DTS=$(ls -d /opt/rh/devtoolset-* 2>/dev/null | sort | tail -1 || true)
                 if [ -n "$DTS" ] && [ -f "$DTS/enable" ]; then
