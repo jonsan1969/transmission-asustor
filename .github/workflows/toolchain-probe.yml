@@ -1,0 +1,108 @@
+name: ASUSTOR Toolchain Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download ASUSTOR toolchain
+        run: |
+          set -euxo pipefail
+          mkdir toolchain
+          curl -L --fail --retry 3 \
+            -o toolchain/asustor.tar.gz \
+            'https://sourceforge.net/projects/asgpl/files/ADM%202.0/Toolchain/x86_64-asustor-linux-gnu-64bit.tar.gz/download'
+          tar -xzf toolchain/asustor.tar.gz -C toolchain
+
+      - name: Probe toolchain
+        run: |
+          set -euxo pipefail
+
+          CC=$(find "$PWD/toolchain" -type f \
+            -name 'x86_64-asustor-linux-gnu-gcc' | head -1)
+
+          CXX=$(find "$PWD/toolchain" -type f \
+            -name 'x86_64-asustor-linux-gnu-g++' | head -1)
+
+          echo "=== COMPILER ==="
+          "$CC" --version
+          "$CXX" --version
+
+          echo "=== TARGET ==="
+          "$CC" -dumpmachine
+          "$CC" -dumpversion
+
+          echo "=== SYSROOT ==="
+          "$CC" --print-sysroot || true
+
+          echo "=== SEARCH DIRS ==="
+          "$CC" -print-search-dirs
+
+          echo "=== LIBC FILES ==="
+          find "$PWD/toolchain" -type f \
+            \( -name 'libc.so.6' -o -name 'libc-*.so' \) -print
+
+          echo "=== GLIBC SYMBOLS ==="
+          find "$PWD/toolchain" -type f \
+            \( -name 'libc.so.6' -o -name 'libc-*.so' \) \
+            -exec sh -c '
+              echo "----- $1 -----"
+              strings "$1" |
+              grep -E "^GLIBC_[0-9]+\.[0-9]+" |
+              sort -u
+            ' sh {} \;
+
+      - name: Compile test binaries
+        run: |
+          set -euxo pipefail
+
+          CC=$(find "$PWD/toolchain" -type f \
+            -name 'x86_64-asustor-linux-gnu-gcc' | head -1)
+
+          CXX=$(find "$PWD/toolchain" -type f \
+            -name 'x86_64-asustor-linux-gnu-g++' | head -1)
+
+          cat >/tmp/hello.c <<'EOF'
+          #include <stdio.h>
+          int main(void) {
+              puts("ASUSTOR C probe");
+              return 0;
+          }
+          EOF
+
+          cat >/tmp/hello.cpp <<'EOF'
+          #include <iostream>
+          int main() {
+              std::cout << "ASUSTOR C++ probe\n";
+              return 0;
+          }
+          EOF
+
+          "$CC" -O2 -march=x86-64 \
+            /tmp/hello.c -o /tmp/hello-c
+
+          "$CXX" -O2 -march=x86-64 \
+            /tmp/hello.cpp -o /tmp/hello-cxx
+
+          file /tmp/hello-c /tmp/hello-cxx
+
+          echo "=== C .comment ==="
+          readelf -p .comment /tmp/hello-c || true
+
+          echo "=== C++ .comment ==="
+          readelf -p .comment /tmp/hello-cxx || true
+
+          echo "=== C GLIBC requirements ==="
+          readelf -V /tmp/hello-c |
+            grep -o 'GLIBC_[0-9.]*' |
+            sort -u || true
+
+          echo "=== C++ GLIBC requirements ==="
+          readelf -V /tmp/hello-cxx |
+            grep -o 'GLIBC_[0-9.]*' |
+            sort -u || true
