@@ -1,0 +1,44 @@
+{
+  "general": {
+    "package": "transmission",
+    "name": "Transmission",
+    "version": "4.1.1",
+    "depends": [],
+    "conflicts": [],
+    "developer": "https://transmissionbt.com/",
+    "maintainer": "jonsan1969",
+    "website": "https://transmissionbt.com/",
+    "architecture": "x86-64",
+    "firmware": "2.0"
+  },
+  "adm-desktop": {
+    "app": {
+      "url": "/",
+      "protocol": "http",
+      "type": "custom",
+      "port": 9091
+    },
+    "privilege": {
+      "accessible": "",
+      "customizable": true
+    }
+  },
+  "register": {
+    "symbolic-link": {},
+    "share-folder": [
+      {
+        "name": "Download",
+        "description": "Download default shared folder"
+      }
+    ],
+    "port": [9091],
+    "boot-priority": {
+      "stop-order": 80,
+      "start-order": 20
+    },
+    "prerequisites": {
+      "enable-service": [],
+      "restart-service": []
+    }
+  }
+}
