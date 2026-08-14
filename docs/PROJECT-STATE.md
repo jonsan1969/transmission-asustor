@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:38 CEST
+Last updated: 2026-08-14 22:39 CEST
 
 ## Goal
 
@@ -175,10 +175,28 @@ This confirms the live package is running the intended 4.1.1 daemon as `admin` f
 
 A separate `tar -tzf /volume1/Download/transmission-3.00-config-backup.tar.gz` process was still visible from the earlier read-only archive listing; it is unrelated to either daemon and may be allowed to finish or terminated separately if desired.
 
+## Live HTTPS tracker validation — PASS
+
+Transmission Remote GUI connected to the restored live 4.1.1 instance and showed 533 total torrents. A restored torrent was started and its HTTPS tracker replied successfully. The tracker response was:
+
+```text
+You last announced 21 s ago. Please respect the min interval.
+```
+
+The client also displayed the tracker-provided next update interval (~27 minutes). This response is expected for an announce performed too soon and proves that the restored torrent state can perform authenticated/normal HTTPS tracker communication through the packaged curl/OpenSSL/CA runtime; the result is not a TLS failure.
+
+The same Remote GUI session identified the backend as:
+
+```text
+Transmission 4.1.1 (56442e2929) on 192.168.1.160:9091
+```
+
+**RESTORED TORRENT + HTTPS TRACKER COMMUNICATION: PASS.**
+
 ## Immediate next step
 
-1. Verify restored download paths and resume behavior are correct.
-2. Exercise one or more existing torrents against real trackers/peers, including HTTPS tracker communication, to confirm live 4.1.1 operation with restored state.
+1. Verify restored download paths and resume behavior are correct for at least one existing torrent.
+2. Allow a normal tracker announce interval or test another existing torrent to confirm a normal success response / peer activity where available.
 3. Inspect ADM/App Central/package-manager evidence to determine why Manual Install skipped automatic migration.
 4. Fix/rebuild the lifecycle hooks so future 3.00 -> 4.1.1 Manual Install performs migration automatically before release.
 
