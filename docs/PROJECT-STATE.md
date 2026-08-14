@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 20:43 CEST
+Last updated: 2026-08-14 20:45 CEST
 
 ## Goal
 
@@ -157,7 +157,22 @@ The packager is designed to:
 8. create `transmission_4.1.1_x86-64.apk` as a ZIP containing exactly those three members;
 9. unpack both internal tarballs again and verify CONTROL/data separation, executable lifecycle hooks and empty packaged config state.
 
-Result of this checkpoint: **packager source added successfully; CI execution not yet wired/run.**
+### Native APK workflow wiring — SUCCESS
+
+Commit:
+
+```text
+bb9a07531f82c15569ba7af256595450f26428a1
+```
+
+The active workflow now:
+
+- runs `scripts/build-asustor-apk.sh` after the existing golden-build/release/APKG-payload gates;
+- uploads `transmission_4.1.1_x86-64.apk` as artifact `transmission-4.1.1-asustor-x86_64-apk`;
+- uploads `asustor-apk-check.txt` even for failed APK packaging attempts;
+- triggers not only on packaging-script changes but also on every `package/CONTROL/**` change, ensuring migration/service edits rebuild and revalidate the finished APK.
+
+Result of this checkpoint: **packager and CI wiring are committed successfully; the first full native APK workflow run is now the active validation step.**
 
 ## Active GitHub layout
 
@@ -193,12 +208,11 @@ scripts/build-asustor-apk.sh
 
 ## Current next step
 
-1. Wire `scripts/build-asustor-apk.sh` into `.github/workflows/build.yml` after the existing APKG payload gate.
-2. Upload `transmission_4.1.1_x86-64.apk` and `asustor-apk-check.txt` as Actions artifacts.
-3. Run the complete pipeline.
-4. If green, update this checkpoint with the workflow run/commit, exact APK size and validation result before any NAS installation work.
-5. Inspect the finished APK structure and review the upgrade path against Matt 3.00 one final time.
-6. Only then plan the controlled live upgrade test on the AS-608T.
+1. Inspect the automatically triggered workflow for commit `bb9a07531f82c15569ba7af256595450f26428a1`.
+2. If it fails, record the failure here when it changes the diagnosis and fix only the packaging layer; the frozen runtime/payload remains untouched.
+3. If green, update this checkpoint with the workflow run ID, exact APK size and all packaging gates before any NAS installation work.
+4. Inspect the finished APK structure and review the upgrade path against Matt 3.00 one final time.
+5. Only then plan the controlled live upgrade test on the AS-608T.
 
 Do **not** replace the installed App Central Transmission 3.00 package before the APKG migration path and the finished APK have been explicitly validated.
 
