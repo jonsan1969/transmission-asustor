@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:36 CEST
+Last updated: 2026-08-14 22:38 CEST
 
 ## Goal
 
@@ -154,13 +154,33 @@ The restored list contains the expected historical torrents with their completio
 
 Both independent backup archives remain untouched and must stay that way until the restored 4.1.1 installation is fully validated.
 
+## Live daemon identity/version — PASS
+
+Physical process inspection after the restored 4.1.1 start showed the two expected independent Transmission-family services:
+
+```text
+root  /usr/local/AppCentral/download-center/bin/transmissiond --no-utp --config-dir /usr/local/AppCentral/download-center/etc --no-watch-dir
+admin /usr/local/AppCentral/transmission/bin/transmission-daemon --pid-file /var/run/transmission-daemon.pid -g /usr/local/AppCentral/transmission/config
+```
+
+The App Central daemon reports:
+
+```text
+transmission-daemon 4.1.1 (56442e2929)
+```
+
+This confirms the live package is running the intended 4.1.1 daemon as `admin` from the correct App Central path while ASUSTOR Download Center's separate root daemon remains untouched.
+
+**LIVE DAEMON PATH / USER / VERSION: PASS.**
+
+A separate `tar -tzf /volume1/Download/transmission-3.00-config-backup.tar.gz` process was still visible from the earlier read-only archive listing; it is unrelated to either daemon and may be allowed to finish or terminated separately if desired.
+
 ## Immediate next step
 
-1. Verify daemon version/path/user and confirm Download Center's separate root `transmissiond` remains untouched.
-2. Verify restored download paths and resume behavior are correct.
-3. Exercise one or more existing torrents against real trackers/peers, including HTTPS tracker communication, to confirm live 4.1.1 operation with restored state.
-4. Inspect ADM/App Central/package-manager evidence to determine why Manual Install skipped automatic migration.
-5. Fix/rebuild the lifecycle hooks so future 3.00 -> 4.1.1 Manual Install performs migration automatically before release.
+1. Verify restored download paths and resume behavior are correct.
+2. Exercise one or more existing torrents against real trackers/peers, including HTTPS tracker communication, to confirm live 4.1.1 operation with restored state.
+3. Inspect ADM/App Central/package-manager evidence to determine why Manual Install skipped automatic migration.
+4. Fix/rebuild the lifecycle hooks so future 3.00 -> 4.1.1 Manual Install performs migration automatically before release.
 
 ## Working rule — mandatory checkpoint discipline
 
