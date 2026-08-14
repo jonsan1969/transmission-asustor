@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:34 CEST
+Last updated: 2026-08-14 22:36 CEST
 
 ## Goal
 
@@ -57,7 +57,7 @@ maintainer: jonsan1969
 version: 4.1.1
 ```
 
-The daemon runs from the correct path as admin and WebUI works on 9091 after adjusting the RPC policy to allow the local LAN.
+The daemon runs from the correct App Central path and WebUI works on port 9091 after adjusting the RPC policy to allow the local LAN.
 
 However direct filesystem inspection after the automatic package replacement showed:
 
@@ -66,7 +66,7 @@ However direct filesystem inspection after the automatic package replacement sho
 /usr/local/AppCentral/transmission/config/resume   -> 0 files
 ```
 
-WebUI therefore showed **0 Transfers**.
+WebUI therefore initially showed **0 Transfers**.
 
 **LIVE PACKAGE INSTALL: PASS.**
 **AUTOMATIC 3.00 STATE MIGRATION: FAIL.**
@@ -134,21 +134,33 @@ Post-restore exact counts:
 /usr/local/AppCentral/transmission/config/resume   -> 533 *.resume
 ```
 
-**MANUAL STATE RESTORE: PASS.**
+The required LAN RPC adjustment was then reapplied to the restored old `settings.json` before restart:
+
+```text
+rpc-whitelist = 127.0.0.1,::1,192.168.*.*
+rpc-whitelist-enabled = true
+rpc-host-whitelist-enabled = false
+```
+
+After starting Transmission 4.1.1 again from App Central, the WebUI opened successfully and displayed:
+
+```text
+533 Transfers
+```
+
+The restored list contains the expected historical torrents with their completion/progress and ratio information visible in the WebUI.
+
+**MANUAL STATE RESTORE + LIVE WEBUI LOAD: PASS.**
 
 Both independent backup archives remain untouched and must stay that way until the restored 4.1.1 installation is fully validated.
 
 ## Immediate next step
 
-1. Keep Transmission 4.1.1 stopped while editing the restored old `settings.json`.
-2. Reapply only the required LAN RPC access adjustment to the restored settings:
-   - `rpc-whitelist`: `127.0.0.1,::1,192.168.*.*`
-   - `rpc-whitelist-enabled`: `true`
-   - `rpc-host-whitelist-enabled`: `false`
-3. Start 4.1.1 from App Central.
-4. Verify WebUI shows the restored 533 transfers/state rather than 0.
-5. Verify daemon version/path/user, download paths, resume state, tracker/HTTPS operation and Download Center isolation.
-6. Separately determine why old ADM Manual Install skipped automatic migration, then fix/rebuild the package hooks before release.
+1. Verify daemon version/path/user and confirm Download Center's separate root `transmissiond` remains untouched.
+2. Verify restored download paths and resume behavior are correct.
+3. Exercise one or more existing torrents against real trackers/peers, including HTTPS tracker communication, to confirm live 4.1.1 operation with restored state.
+4. Inspect ADM/App Central/package-manager evidence to determine why Manual Install skipped automatic migration.
+5. Fix/rebuild the lifecycle hooks so future 3.00 -> 4.1.1 Manual Install performs migration automatically before release.
 
 ## Working rule — mandatory checkpoint discipline
 
