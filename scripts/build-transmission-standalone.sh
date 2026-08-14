@@ -131,7 +131,7 @@ echo "=== VERIFY STAGED DAEMON USES RELATIVE PRIVATE LIBRARY PATH ==="
 DAEMON="$STAGE/bin/transmission-daemon"
 test -x "$DAEMON"
 readelf -d "$DAEMON" | grep -E "RPATH|RUNPATH|NEEDED"
-readelf -d "$DAEMON" | grep -F '\$ORIGIN/../lib'
+readelf -d "$DAEMON" | grep -F '$ORIGIN/../lib'
 
 # The staged daemon must run without the build prefix being present in LD_LIBRARY_PATH.
 env -u LD_LIBRARY_PATH "$DAEMON" --version
