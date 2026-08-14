@@ -1,0 +1,46 @@
+name: Transmission 4.1.1 Standalone Bundle
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/transmission-standalone-build.yml
+      - scripts/build-transmission-standalone.sh
+
+jobs:
+  standalone-bundle:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pull pinned manylinux2014 build environment
+        run: docker pull quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
+
+      - name: Build and audit standalone NAS bundle
+        run: |
+          set -euxo pipefail
+          chmod +x scripts/build-transmission-standalone.sh
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77 \
+            /bin/bash /work/scripts/build-transmission-standalone.sh
+
+      - name: Upload standalone bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transmission-4.1.1-as608t-standalone
+          path: transmission-standalone.tar.gz
+          if-no-files-found: error
+
+      - name: Upload standalone ABI audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transmission-standalone-abi-audit
+          path: standalone-abi-audit.txt
+          if-no-files-found: warn
