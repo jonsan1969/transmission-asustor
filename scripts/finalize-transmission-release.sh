@@ -53,20 +53,26 @@ BEFORE_BYTES=$(du -sb "$STAGE" | awk '{print $1}')
 BEFORE_HUMAN=$(du -sh "$STAGE" | awk '{print $1}')
 log "pre-strip staged size: $BEFORE_BYTES bytes ($BEFORE_HUMAN)"
 
-log "=== STRIP DELIVERABLE ELF FILES ==="
-ELF_COUNT=0
+log "=== SNAPSHOT DELIVERABLE ELF FILES ==="
+ELF_FILES=()
 while IFS= read -r -d '' candidate; do
-  if file "$candidate" | grep -q 'ELF 64-bit'; then
-    log "strip: ${candidate#$STAGE/}"
-    strip --strip-unneeded "$candidate"
-    ELF_COUNT=$((ELF_COUNT + 1))
+  if readelf -h "$candidate" >/dev/null 2>&1; then
+    ELF_FILES+=("$candidate")
   fi
 done < <(find "$STAGE" -type f -print0 | sort -z)
 
+ELF_COUNT=${#ELF_FILES[@]}
 if [ "$ELF_COUNT" -eq 0 ]; then
   log "ERROR: no ELF files found to strip"
   exit 1
 fi
+log "ELF files selected for strip: $ELF_COUNT"
+
+log "=== STRIP DELIVERABLE ELF FILES ==="
+for candidate in "${ELF_FILES[@]}"; do
+  log "strip: ${candidate#$STAGE/}"
+  strip --strip-unneeded "$candidate"
+done
 log "stripped ELF files: $ELF_COUNT"
 
 AFTER_BYTES=$(du -sb "$STAGE" | awk '{print $1}')
@@ -82,8 +88,10 @@ fi
 
 log "=== POST-STRIP ELF / ABI / RPATH GATE ==="
 ABI_FAIL=0
-while IFS= read -r -d '' elf; do
-  if ! file "$elf" | grep -q 'ELF 64-bit'; then
+for elf in "${ELF_FILES[@]}"; do
+  if ! readelf -h "$elf" >/dev/null 2>&1; then
+    log "ELF ERROR: ${elf#$STAGE/} is missing or invalid after strip"
+    ABI_FAIL=1
     continue
   fi
 
@@ -106,7 +114,7 @@ while IFS= read -r -d '' elf; do
     log "RPATH ERROR: $rel still contains /opt/transmission-deps"
     ABI_FAIL=1
   fi
-done < <(find "$STAGE" -type f -print0 | sort -z)
+done
 
 [ "$ABI_FAIL" -eq 0 ] || exit 1
 log "PASS: post-strip GLIBC/build-prefix gate"
