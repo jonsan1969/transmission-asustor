@@ -37,7 +37,7 @@ The project was created for the x64 AS-6 generation. Expected candidates include
 - AS-604RS / AS-604RD
 - AS-609RS / AS-609RD
 
-These are **expected compatible but not yet physically verified** except that the AS-608T is the first planned live test system.
+These are **expected compatible but not yet physically verified** except that the AS-608T is now partially live-validated.
 
 Older AS-2 / AS-3 systems are 32-bit x86 and cannot use this x86-64 build.
 
@@ -58,6 +58,21 @@ Two separate Transmission-family processes exist on this NAS:
 
 The App Central instance was observed on RPC port `9091` and peer port `53297`. Do not confuse it with Download Center during testing.
 
+### Live standalone validation — in progress
+
+The clean standalone artifact has now been unpacked on the real AS-608T under an isolated test directory.
+
+Confirmed on physical hardware:
+
+- `ldd` reports the NAS runtime as glibc **2.22**;
+- `bin/transmission-daemon` is a 64-bit x86-64 GNU/Linux ELF using `/lib64/ld-linux-x86-64.so.2`;
+- `./bin/transmission-daemon-bundled --version` executes successfully and reports **Transmission 4.1.1 (56442e2929)**;
+- `ldd bin/transmission-daemon` resolves private `libcurl.so.4`, `libssl.so.3`, `libcrypto.so.3`, `libstdc++.so.6` and `libgcc_s.so.1` from the standalone bundle's own `../lib` directory;
+- no staged dependency is reported as `not found`;
+- certificate-verified HTTPS succeeds on the NAS using the bundled curl/OpenSSL/CA stack: `./bin/curl -I https://curl.se/` returned **HTTP/1.1 200 OK** with no `-k`, `--insecure`, or `TR_CURL_SSL_NO_VERIFY` workaround.
+
+The daemon has not yet been started as a separate RPC/peer instance; that is the next live-validation gate.
+
 ## Current build
 
 Versions:
@@ -76,9 +91,9 @@ Compiler flags:
 
 Transmission 4.1.1 still receives the narrow GCC 10 source compatibility patch that removes `constexpr` only from `tr_address::is_ipv6_6to4()`.
 
-## Standalone bundle — GREEN
+## Standalone bundle — GREEN in CI, partial live validation GREEN
 
-The standalone build pipeline now passes all current gates:
+The standalone build pipeline now passes all current CI gates:
 
 - full Transmission 4.1.1 compilation
 - private OpenSSL/curl build
@@ -157,7 +172,7 @@ The old installed AS-608T package had a local workaround:
 TR_CURL_SSL_NO_VERIFY=1; export TR_CURL_SSL_NO_VERIFY
 ```
 
-It is explicitly excluded from the rebuild. The standalone bundle carries CA trust and has passed certificate-verified HTTPS in CI.
+It is explicitly excluded from the rebuild. The standalone bundle carries CA trust and has now passed certificate-verified HTTPS both in CI and on the physical AS-608T.
 
 ## Upgrade-data preservation
 
@@ -174,9 +189,9 @@ Matt's original package layout and CONTROL files remain under `package/` as the 
 
 ## Current next step
 
-Take the clean green **ASUSTOR x86-64 / GLIBC 2.17+ standalone artifact** and perform the first isolated live validation on the AS-608T in a separate directory with a temporary config and non-conflicting ports.
+Continue the isolated AS-608T live test by starting Transmission 4.1.1 with a fresh temporary config and non-conflicting RPC/peer ports, then verify RPC, WebUI and clean shutdown.
 
-Do **not** touch or replace the installed App Central Transmission package until that standalone runtime test is successful.
+Do **not** touch or replace the installed App Central Transmission package until that standalone runtime test is fully successful.
 
 ## Working rule
 
