@@ -48,7 +48,9 @@ curl -L --fail --retry 3 -o /tmp/curl.tar.xz "https://curl.se/download/curl-$CUR
 mkdir /tmp/curl-src
 tar -xJf /tmp/curl.tar.xz -C /tmp/curl-src --strip-components=1
 cd /tmp/curl-src
-LDFLAGS="-L$PREFIX/lib64 -L$PREFIX/lib" CPPFLAGS="-I$PREFIX/include" ./configure \
+LDFLAGS="-L$PREFIX/lib64 -L$PREFIX/lib -Wl,-rpath,\$ORIGIN/../lib -Wl,--disable-new-dtags" \
+CPPFLAGS="-I$PREFIX/include" \
+./configure \
   --prefix="$PREFIX" --with-openssl="$PREFIX" --enable-shared --disable-static \
   --disable-ldap --disable-ldaps --without-libpsl --without-zlib --without-brotli \
   --without-zstd --without-libidn2 --without-nghttp2 --without-nghttp3 \
@@ -83,42 +85,86 @@ cmake -S /tmp/transmission-src -B /tmp/transmission-build \
 cmake --build /tmp/transmission-build --parallel "$(nproc)"
 cmake --install /tmp/transmission-build
 
-echo "=== STAGE PRIVATE RUNTIME LIBRARIES ==="
-mkdir -p "$STAGE/lib"
+echo "=== STAGE PRIVATE RUNTIME, TLS TRUST AND DIAGNOSTIC CURL ==="
+mkdir -p "$STAGE/lib" "$STAGE/share/certs"
 cp -L "$PREFIX/lib/libcurl.so.4.8.0" "$STAGE/lib/libcurl.so.4.8.0"
 ln -sfn libcurl.so.4.8.0 "$STAGE/lib/libcurl.so.4"
 cp -L "$PREFIX/lib64/libssl.so.3" "$STAGE/lib/libssl.so.3"
 cp -L "$PREFIX/lib64/libcrypto.so.3" "$STAGE/lib/libcrypto.so.3"
 cp -L "$(g++ -print-file-name=libstdc++.so.6)" "$STAGE/lib/libstdc++.so.6"
 cp -L "$(gcc -print-file-name=libgcc_s.so.1)" "$STAGE/lib/libgcc_s.so.1"
+cp -L "$PREFIX/bin/curl" "$STAGE/bin/curl"
+
+if [ -d "$PREFIX/lib64/ossl-modules" ]; then
+  mkdir -p "$STAGE/lib/ossl-modules"
+  cp -a "$PREFIX/lib64/ossl-modules/." "$STAGE/lib/ossl-modules/"
+fi
+
+CA_SOURCE=/etc/pki/tls/certs/ca-bundle.crt
+test -s "$CA_SOURCE"
+cp -L "$CA_SOURCE" "$STAGE/share/certs/ca-bundle.crt"
+
+cat > "$STAGE/bin/transmission-daemon-bundled" <<'WRAPPER'
+#!/bin/sh
+set -eu
+BIN_DIR=$(cd "$(dirname "$0")" && pwd -P)
+ROOT=$(cd "$BIN_DIR/.." && pwd -P)
+export CURL_CA_BUNDLE="$ROOT/share/certs/ca-bundle.crt"
+export SSL_CERT_FILE="$ROOT/share/certs/ca-bundle.crt"
+if [ -d "$ROOT/lib/ossl-modules" ]; then
+  export OPENSSL_MODULES="$ROOT/lib/ossl-modules"
+fi
+exec "$ROOT/bin/transmission-daemon" "$@"
+WRAPPER
+chmod 0755 "$STAGE/bin/transmission-daemon-bundled"
+
 find "$STAGE" -maxdepth 4 \( -type f -o -type l \) | sort
 
-echo "=== VERIFY STAGED DAEMON USES RELATIVE PRIVATE LIBRARY PATH ==="
+echo "=== VERIFY STAGED RUNTIME ==="
 DAEMON="$STAGE/bin/transmission-daemon"
+BUNDLED_DAEMON="$STAGE/bin/transmission-daemon-bundled"
+CURL_BIN="$STAGE/bin/curl"
+CA_BUNDLE="$STAGE/share/certs/ca-bundle.crt"
 : > "$RUNTIME_REPORT"
 {
   echo "=== STANDALONE RUNTIME PREFLIGHT ==="
   echo "stage: $STAGE"
   echo "daemon: $DAEMON"
+  echo "bundled daemon wrapper: $BUNDLED_DAEMON"
+  echo "CA bundle: $CA_BUNDLE"
+  echo "CA bundle sha256: $(sha256sum "$CA_BUNDLE" | awk '{print $1}')"
   echo
 } | tee -a "$RUNTIME_REPORT"
 
 test -x "$DAEMON" || { echo "ERROR: staged transmission-daemon is missing/not executable" | tee -a "$RUNTIME_REPORT"; exit 1; }
+test -x "$BUNDLED_DAEMON" || { echo "ERROR: bundled daemon wrapper is missing/not executable" | tee -a "$RUNTIME_REPORT"; exit 1; }
+test -x "$CURL_BIN" || { echo "ERROR: staged diagnostic curl is missing/not executable" | tee -a "$RUNTIME_REPORT"; exit 1; }
+test -s "$CA_BUNDLE" || { echo "ERROR: bundled CA trust file is empty/missing" | tee -a "$RUNTIME_REPORT"; exit 1; }
 
 {
   echo "=== DAEMON DYNAMIC SECTION ==="
   readelf -d "$DAEMON" | grep -E "RPATH|RUNPATH|NEEDED" || true
+  echo "=== CURL DYNAMIC SECTION ==="
+  readelf -d "$CURL_BIN" | grep -E "RPATH|RUNPATH|NEEDED" || true
   echo
 } | tee -a "$RUNTIME_REPORT"
 
-if ! readelf -d "$DAEMON" | grep -Fq '$ORIGIN/../lib'; then
-  echo "ERROR: staged daemon lacks expected \$ORIGIN/../lib RPATH/RUNPATH" | tee -a "$RUNTIME_REPORT"
-  exit 1
-fi
+for elf in "$DAEMON" "$CURL_BIN"; do
+  if ! readelf -d "$elf" | grep -Fq '$ORIGIN/../lib'; then
+    echo "ERROR: ${elf#$STAGE/} lacks expected \$ORIGIN/../lib RPATH/RUNPATH" | tee -a "$RUNTIME_REPORT"
+    exit 1
+  fi
+done
 
 echo "=== DAEMON VERSION WITH LD_LIBRARY_PATH UNSET ===" | tee -a "$RUNTIME_REPORT"
 if ! env -u LD_LIBRARY_PATH "$DAEMON" --version 2>&1 | tee -a "$RUNTIME_REPORT"; then
   echo "ERROR: staged daemon cannot execute using its own runtime search path" | tee -a "$RUNTIME_REPORT"
+  exit 1
+fi
+
+echo "=== WRAPPED DAEMON VERSION WITH BUNDLED TLS ENVIRONMENT ===" | tee -a "$RUNTIME_REPORT"
+if ! env -u LD_LIBRARY_PATH "$BUNDLED_DAEMON" --version 2>&1 | tee -a "$RUNTIME_REPORT"; then
+  echo "ERROR: bundled daemon wrapper cannot execute" | tee -a "$RUNTIME_REPORT"
   exit 1
 fi
 
@@ -157,7 +203,17 @@ for private_lib in libcurl.so.4 libssl.so.3 libcrypto.so.3 libstdc++.so.6 libgcc
   echo "PASS: $resolved_line" | tee -a "$RUNTIME_REPORT"
 done
 
-echo "RUNTIME PREFLIGHT: PASS" | tee -a "$RUNTIME_REPORT"
+echo "=== VERIFIED HTTPS USING STAGED CURL + PRIVATE TLS + BUNDLED CA ===" | tee -a "$RUNTIME_REPORT"
+if ! env -u LD_LIBRARY_PATH \
+  CURL_CA_BUNDLE="$CA_BUNDLE" \
+  SSL_CERT_FILE="$CA_BUNDLE" \
+  "$CURL_BIN" --fail --silent --show-error --retry 2 --connect-timeout 10 --max-time 30 \
+  -o /dev/null https://curl.se/ 2>&1 | tee -a "$RUNTIME_REPORT"; then
+  echo "ERROR: staged private curl/OpenSSL stack failed verified HTTPS with bundled CA" | tee -a "$RUNTIME_REPORT"
+  exit 1
+fi
+
+echo "RUNTIME + TLS PREFLIGHT: PASS" | tee -a "$RUNTIME_REPORT"
 
 echo "=== FINAL STAGED ELF ABI AUDIT ==="
 : > "$REPORT"
