@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 20:38 CEST
+Last updated: 2026-08-14 20:43 CEST
 
 ## Goal
 
@@ -83,68 +83,81 @@ WebUI during isolated test:
 http://127.0.0.1:19091/
 ```
 
-The Ubuntu torrent used for the live torrent test announced to:
-
-```text
-http://torrent.ubuntu.com:6969
-```
-
-Therefore that torrent test itself did not exercise HTTPS tracker TLS; HTTPS was already separately validated through the bundled curl/OpenSSL/CA stack both in CI and on the NAS.
-
 **Standalone runtime on AS-608T: PASS.**
 
-## WebUI location
+## Golden release and APKG payload — GREEN
 
-The installed Transmission 4.1.1 web assets in the standalone CMake install are under:
+The release finalization and minimal APKG payload phases have passed. The stripped payload remains the frozen runtime baseline for package construction.
 
-```text
-share/transmission/public_html/
-```
+The APKG payload contains the six Matt-compatible Transmission programs plus the required private curl/OpenSSL/C++ runtime, CA trust and WebUI. Build/test-only files were removed without changing retained runtime files.
 
-During the manual NAS test `TRANSMISSION_WEB_HOME` had to be exported to this directory.
+**APKG PAYLOAD: PASS.**
 
-For the portable standalone release wrapper it should be derived from the wrapper's bundle root. For the final ASUSTOR APKG, the equivalent environment variable belongs in the package start/stop service logic following Matt's historical package behavior.
+The payload is approximately **29.8 MB unpacked**. Further removal is not a goal unless a file is proven unnecessary; the size is predominantly real Transmission 4.1.1 plus the modern private runtime rather than ballast.
 
-## Release finalization phase — ACTIVE
+## ASUSTOR APKG packaging phase — ACTIVE
 
-The unstripped standalone build remains the validated baseline. Release finalization is deliberately a separate stage after the existing build/runtime/ABI/TLS gates.
-
-New release finalizer:
+Historical native ASUSTOR package format has been re-verified against ASUSTOR's own `apkg-tools.py` implementation:
 
 ```text
-scripts/finalize-transmission-release.sh
+APK container: ZIP
+Top-level members:
+  apkg-version
+  control.tar.gz
+  data.tar.gz
+APKG format version: 2.0
 ```
 
-It performs:
+`control.tar.gz` contains the contents of `CONTROL/`. `data.tar.gz` contains the application payload while excluding `CONTROL/`.
 
-1. install a relocatable standalone wrapper that sets `TRANSMISSION_WEB_HOME` to `share/transmission/public_html` plus bundled CA/OpenSSL environment;
-2. record pre-strip staged size;
-3. strip deliverable 64-bit ELF files with `strip --strip-unneeded`;
-4. record post-strip staged size and bytes saved;
-5. re-run post-strip GLIBC/build-prefix audit;
-6. re-check executable `$ORIGIN/../lib` RPATH;
-7. re-run daemon/wrapper runtime and private-library resolution checks;
-8. re-run certificate-verified HTTPS through staged curl/OpenSSL/CA;
-9. rebuild the final standalone tarball and record its final archive size.
+### CONTROL and migration baseline
 
-The active workflow now runs the proven standalone build/audit first and the release finalizer second.
+The current package keeps Matt's proven compatibility semantics while replacing his fragile implementation details:
 
-Current workflow run triggered by this change:
+- package ID remains `transmission`;
+- daemon runs as `admin:administrators`;
+- config remains `/usr/local/AppCentral/transmission/config`;
+- PID file remains `/var/run/transmission-daemon.pid`;
+- WebUI remains App Central port 9091;
+- boot priority remains start 20 / stop 80;
+- existing `config/` is backed up before upgrade;
+- legacy package-root state migration is supported;
+- legacy program payload is explicitly excluded from migration: `CONTROL`, `bin`, `lib`, `share`, `web`, `www`;
+- post-install restore requires the explicit `.apkg-backup-complete` marker;
+- package lifecycle hooks are true POSIX `/bin/sh`, not Bash `[[ ... ]]` under a sh shebang;
+- binaries retain relocatable `$ORIGIN/../lib` instead of Matt's historical absolute RPATH;
+- `TRANSMISSION_WEB_HOME` and TLS environment are set by service startup logic;
+- historical `TR_CURL_SSL_NO_VERIFY=1` is permanently excluded.
+
+The installed Transmission 3.00 state and roughly 600 active torrents are considered irreplaceable upgrade data. No package test may overwrite or discard them without a verified backup/restore path.
+
+### Native APK packager added — SUCCESS
+
+Commit:
 
 ```text
-run #2 / 31822649054
-commit b3324e7d2e20db2724c0353b268c67fb62202090
+73faa41b999b336d6615977f8080fb13ac336b10
 ```
 
-Status at this checkpoint: **in progress**.
-
-Release diagnostics artifact:
+New script:
 
 ```text
-transmission-asustor-x86_64-release-check
+scripts/build-asustor-apk.sh
 ```
 
-The previous standalone archive was approximately **13 MB**; the release run will establish the actual post-strip comparison.
+The packager is designed to:
+
+1. combine the frozen minimal payload with `package/CONTROL`;
+2. force CONTROL lifecycle scripts executable in the archive;
+3. ship an intentionally empty `config/` directory so no user state can be embedded in the package;
+4. gate the Matt-compatible backup/restore marker and legacy exclusions before packaging;
+5. reject Bash `[[ ... ]]` in CONTROL scripts;
+6. re-check `$ORIGIN/../lib` on packaged Transmission executables;
+7. create APKG 2.0 `apkg-version`, `control.tar.gz`, and `data.tar.gz`;
+8. create `transmission_4.1.1_x86-64.apk` as a ZIP containing exactly those three members;
+9. unpack both internal tarballs again and verify CONTROL/data separation, executable lifecycle hooks and empty packaged config state.
+
+Result of this checkpoint: **packager source added successfully; CI execution not yet wired/run.**
 
 ## Active GitHub layout
 
@@ -166,62 +179,28 @@ Release finalizer:
 scripts/finalize-transmission-release.sh
 ```
 
-Published bundle artifact:
+APKG payload finalizer:
 
 ```text
-transmission-4.1.1-asustor-x86_64-glibc217
+scripts/prepare-apkg-payload.sh
 ```
 
-Raw validation artifacts:
+Native APK packager:
 
 ```text
-transmission-asustor-x86_64-runtime-check
-transmission-asustor-x86_64-abi-audit
-transmission-asustor-x86_64-release-check
+scripts/build-asustor-apk.sh
 ```
-
-## Historical ASUSTOR packaging compatibility
-
-Archived native Transmission 2.92, 2.94 and 3.00 packages were inspected. `docs/PACKAGING-HISTORY.md` is the durable record.
-
-Matt's 2.94/3.00 package line is the primary compatibility reference. Important behavior to carry forward:
-
-- package tree conceptually uses `bin/`, `lib/`, `config/` and web assets;
-- daemon runs as `admin:administrators`;
-- config resides under `/usr/local/AppCentral/transmission/config`;
-- PID file is `/var/run/transmission-daemon.pid`;
-- service uses `start-stop-daemon` with start/stop/restart/reload/status, graceful wait and forced-stop fallback;
-- `TRANSMISSION_WEB_HOME` is set by the start/stop service script;
-- preserve existing `config/` across package upgrades;
-- support migration from older layouts where state lived outside `config/`;
-- preserve settings, torrent metadata, resume data, DHT state, blocklists and statistics;
-- exclude obsolete package payload (`CONTROL`, `bin`, `lib`, old web assets) when migrating older package layouts;
-- historical sysctl UDP-buffer tuning must not be copied blindly unless 4.1.1 proves it is still required.
-
-The final APKG should preserve Matt's migration semantics but use clear POSIX shell and explicit error handling.
-
-## Existing state is valuable
-
-The installed Transmission 3.00 configuration/state and roughly 600 active torrents must not be touched until the new APKG and migration logic are ready for controlled validation.
-
-The final package must preserve at minimum:
-
-- `settings.json`
-- `.torrent` metadata
-- resume state
-- DHT state
-- blocklists
-- statistics
 
 ## Current next step
 
-1. Let GitHub Actions run #2 finish.
-2. Inspect the release diagnostics and exact pre-/post-strip/final archive sizes.
-3. If all post-strip gates are green, perform one short final runtime smoke test of that stripped artifact on the AS-608T.
-4. Freeze the stripped standalone payload as the APKG payload baseline.
-5. Begin the real ASUSTOR APKG around that payload using Matt-compatible start/stop and migration behavior.
+1. Wire `scripts/build-asustor-apk.sh` into `.github/workflows/build.yml` after the existing APKG payload gate.
+2. Upload `transmission_4.1.1_x86-64.apk` and `asustor-apk-check.txt` as Actions artifacts.
+3. Run the complete pipeline.
+4. If green, update this checkpoint with the workflow run/commit, exact APK size and validation result before any NAS installation work.
+5. Inspect the finished APK structure and review the upgrade path against Matt 3.00 one final time.
+6. Only then plan the controlled live upgrade test on the AS-608T.
 
-Do **not** replace the installed App Central Transmission 3.00 package before the APKG migration path is explicitly validated.
+Do **not** replace the installed App Central Transmission 3.00 package before the APKG migration path and the finished APK have been explicitly validated.
 
 ## Working rule — mandatory checkpoint discipline
 
