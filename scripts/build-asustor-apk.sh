@@ -10,6 +10,15 @@ PKG_DIR="$WORK/package"
 APK="$ROOT/transmission_4.1.1_x86-64.apk"
 REPORT="$ROOT/asustor-apk-check.txt"
 
+# Matt's Transmission 3.00 CONTROL icons are the proven 90x90 assets used by
+# the same legacy ADM generation we target. Keep the build reproducible by
+# pinning both the historical package URL and its SHA-256, then extract only
+# the three icon files into our new CONTROL archive.
+LEGACY_APK_URL=${LEGACY_APK_URL:-https://appdownload.asustor.com/0010_54837_1590279933_transmission_3.00_x86-64.apk}
+LEGACY_APK_SHA256=${LEGACY_APK_SHA256:-f2840d2d74141233df160d3f44317d09c0bfc1f272afd8f152bd7c8d6f775cf4}
+LEGACY_APK="$WORK/legacy-transmission-3.00.apk"
+LEGACY_CONTROL="$WORK/legacy-control.tar.gz"
+
 : > "$REPORT"
 
 log() {
@@ -29,11 +38,45 @@ test -d "$PAYLOAD" || fail "APKG payload tree is missing"
 test -d "$CONTROL_SRC" || fail "CONTROL source tree is missing"
 test -x "$PAYLOAD/bin/transmission-daemon" || fail "Transmission daemon is missing from payload"
 test -f "$CONTROL_SRC/config.json" || fail "CONTROL/config.json is missing"
+test -f "$CONTROL_SRC/license.txt" || fail "CONTROL/license.txt is missing"
 
 rm -rf "$WORK"
 mkdir -p "$APP_DIR" "$PKG_DIR"
 cp -a "$PAYLOAD/." "$APP_DIR/"
 cp -a "$CONTROL_SRC" "$APP_DIR/CONTROL"
+
+log "=== LEGACY ADM CONTROL ASSETS ==="
+command -v curl >/dev/null 2>&1 || fail "curl is required to fetch pinned legacy icon assets"
+command -v unzip >/dev/null 2>&1 || fail "unzip is required to extract pinned legacy icon assets"
+command -v python3 >/dev/null 2>&1 || fail "python3 is required to validate PNG icon assets"
+
+curl -fsSL "$LEGACY_APK_URL" -o "$LEGACY_APK" || fail "failed to fetch pinned Matt Transmission 3.00 APK"
+ACTUAL_LEGACY_SHA256=$(sha256sum "$LEGACY_APK" | awk '{print $1}')
+[ "$ACTUAL_LEGACY_SHA256" = "$LEGACY_APK_SHA256" ] || fail "legacy APK SHA-256 mismatch"
+unzip -p "$LEGACY_APK" control.tar.gz > "$LEGACY_CONTROL" || fail "could not extract legacy control.tar.gz"
+for icon in icon.png icon-enable.png icon-disable.png; do
+    tar -xOzf "$LEGACY_CONTROL" "./$icon" > "$APP_DIR/CONTROL/$icon" || fail "could not extract legacy $icon"
+done
+
+python3 - "$APP_DIR/CONTROL" <<'PY' || exit 1
+import pathlib
+import struct
+import sys
+
+control = pathlib.Path(sys.argv[1])
+for name in ("icon.png", "icon-enable.png", "icon-disable.png"):
+    path = control / name
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(f"ERROR: {name} is not a PNG")
+    if len(data) < 24 or data[12:16] != b"IHDR":
+        raise SystemExit(f"ERROR: {name} has invalid PNG IHDR")
+    width, height = struct.unpack(">II", data[16:24])
+    if (width, height) != (90, 90):
+        raise SystemExit(f"ERROR: {name} is {width}x{height}, expected 90x90")
+    print(f"PASS icon: {name} ({width}x{height}, {len(data)} bytes)")
+PY
+log "PASS: pinned Matt 3.00 legacy ADM icons extracted and validated"
 
 # Match ASUSTOR apkg-tools.py behavior: CONTROL shell hooks are executable
 # in control.tar.gz regardless of their repository file mode.
@@ -48,7 +91,7 @@ rm -rf "$APP_DIR/config"
 mkdir -p "$APP_DIR/config"
 
 log "=== UPGRADE SAFETY GATE ==="
-for required in pre-install.sh post-install.sh start-stop.sh config.json; do
+for required in pre-install.sh post-install.sh start-stop.sh config.json description.txt changelog.txt license.txt icon.png icon-enable.png icon-disable.png; do
     test -f "$APP_DIR/CONTROL/$required" || fail "missing CONTROL/$required"
     log "PASS control: $required"
 done
@@ -109,6 +152,10 @@ tar -xzf "$PKG_DIR/control.tar.gz" -C "$WORK/inspect-control"
 tar -xzf "$PKG_DIR/data.tar.gz" -C "$WORK/inspect-data"
 
 test -f "$WORK/inspect-control/config.json" || fail "config.json missing after control archive round-trip"
+test -f "$WORK/inspect-control/license.txt" || fail "license.txt missing after control archive round-trip"
+for icon in icon.png icon-enable.png icon-disable.png; do
+    test -s "$WORK/inspect-control/$icon" || fail "$icon missing after control archive round-trip"
+done
 test -x "$WORK/inspect-control/pre-install.sh" || fail "pre-install.sh lost executable bit"
 test -x "$WORK/inspect-control/post-install.sh" || fail "post-install.sh lost executable bit"
 test -x "$WORK/inspect-control/start-stop.sh" || fail "start-stop.sh lost executable bit"
@@ -116,7 +163,7 @@ test ! -e "$WORK/inspect-data/CONTROL" || fail "CONTROL leaked into data.tar.gz"
 if find "$WORK/inspect-data/config" -mindepth 1 -print -quit | grep -q .; then
     fail "state leaked into packaged config directory"
 fi
-log "PASS: control/data archives round-trip with safe separation"
+log "PASS: control/data archives round-trip with complete legacy ADM presentation assets and safe separation"
 
 APK_BYTES=$(stat -c '%s' "$APK")
 APK_HUMAN=$(du -h "$APK" | awk '{print $1}')
