@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 20:50 CEST
+Last updated: 2026-08-14 21:08 CEST
 
 ## Goal
 
@@ -217,6 +217,46 @@ GitHub artifact id: 9230465775
 
 **NATIVE ASUSTOR APK BUILD: PASS.**
 
+## Original package re-review — UPGRADE PATH GREEN
+
+Before any live upgrade, the original archived APKs were opened again directly:
+
+```text
+Matt Transmission 3.00 x86-64
+Matt Transmission 2.94 x86-64
+Transmission 2.92 x86-64
+Transmission Dansk 2.92 x86-64
+Fathi Boudra Transmission 2.92-1 x86-64
+```
+
+The actual CONTROL archives confirm that Matt 3.00 and 2.94 preserve `${PKG_DIR}/config` through `${APKG_TEMP_DIR}` during upgrade and restore it into the new package. The 4.1.1 scripts preserve the same semantics but harden them:
+
+- copy `config/.` rather than `config/*`, preserving hidden state;
+- isolate backup under `${APKG_TEMP_DIR}/transmission-config-backup`;
+- require `.apkg-backup-complete` before restore;
+- reject unsupported package status instead of silently continuing;
+- retain legacy package-root migration while excluding `CONTROL`, `bin`, `lib`, `share`, `web`, `www` program payload;
+- use strict POSIX `/bin/sh` rather than Matt's `[[ ... ]]` Bash-isms.
+
+The start/stop comparison also confirms that the 4.1.1 package intentionally retains Matt-compatible service semantics:
+
+```text
+user/group: admin:administrators
+PID file:   /var/run/transmission-daemon.pid
+config:     /usr/local/AppCentral/transmission/config
+service:    start-stop-daemon
+commands:   start/stop/restart/reload/status
+graceful stop timeout: 10 seconds, then SIGKILL fallback
+```
+
+Implementation details deliberately not copied from Matt include hard-coded WebUI/package paths, unconditional UDP-buffer sysctl tuning, `/lib/lsb/init-functions` dependency, and Bash-style conditionals under `#!/bin/sh`. The new package derives paths from `APKG_PKG_DIR`, sets `TRANSMISSION_WEB_HOME` at runtime and keeps the verified `$ORIGIN/../lib` private-library lookup.
+
+For the actual installed **Matt 3.00 -> Transmission 4.1.1** path on the AS-608T, no state-loss mismatch was found in pre-install backup, package replacement assumptions, post-install restore or service identity.
+
+**LEGACY APK / 3.00 UPGRADE-PATH REVIEW: PASS.**
+
+Historical details are recorded in `docs/PACKAGING-HISTORY.md`; review update commit: `cb8c1c757ad688cf143912e88a82fe2a0ffa7de4`.
+
 ## Active GitHub layout
 
 Build workflow:
@@ -251,12 +291,13 @@ scripts/build-asustor-apk.sh
 
 ## Current next step
 
-1. Perform one final package-level upgrade-path review against Matt's installed Transmission 3.00 behavior, focusing specifically on pre-install backup, package replacement, post-install restore, ownership and service restart semantics.
-2. Verify the finished APK's CONTROL scripts against the actual old package conventions and identify any remaining mismatch before touching the installed package.
-3. If that review is clean, update this checkpoint again and prepare a controlled live upgrade procedure for the AS-608T with an independent backup of the existing Transmission 3.00 config/state before App Central installation.
-4. Only after the backup is independently verified should the first live 3.00 -> 4.1.1 upgrade be attempted.
+1. Before touching App Central, create an independent out-of-band backup of the live Matt 3.00 configuration/state directory on the AS-608T.
+2. Verify that backup contains `settings.json`, `torrents/`, `resume/`, `dht.dat`, `stats.json` and any blocklists present on the live installation.
+3. Record the backup verification in this checkpoint.
+4. Only then perform the first controlled live App Central upgrade from Matt 3.00 to Transmission 4.1.1.
+5. After upgrade, verify daemon version, process identity, RPC/WebUI 9091, settings, torrent count/state, resume data and tracker/HTTPS operation before considering the live upgrade successful.
 
-Do **not** replace the installed App Central Transmission 3.00 package before the final upgrade-path review and independent state backup are complete.
+Do **not** replace the installed App Central Transmission 3.00 package until the independent state backup has been created and verified.
 
 ## Working rule — mandatory checkpoint discipline
 
