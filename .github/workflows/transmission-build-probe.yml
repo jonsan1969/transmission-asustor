@@ -34,6 +34,7 @@ jobs:
               export CXXFLAGS="-O2 -march=x86-64 -mtune=generic"
               export PKG_CONFIG_PATH="$PREFIX/lib64/pkgconfig:$PREFIX/lib/pkgconfig"
               export PATH="$PREFIX/bin:$PATH"
+              export LD_LIBRARY_PATH="$PREFIX/lib64:$PREFIX/lib:${LD_LIBRARY_PATH:-}"
 
               echo "=== BUILD ENVIRONMENT ==="
               gcc --version | head -1
@@ -62,8 +63,9 @@ jobs:
               make install_sw install_ssldirs
 
               echo "=== OPENSSL RESULT ==="
+              find "$PREFIX" -maxdepth 2 \( -name "libssl.so*" -o -name "libcrypto.so*" \) -print | sort
+              readelf -d "$PREFIX/bin/openssl" | grep -E "NEEDED|RPATH|RUNPATH" || true
               "$PREFIX/bin/openssl" version -a
-              find "$PREFIX" -maxdepth 2 -type f -name "libssl.so*" -o -name "libcrypto.so*" | sort
 
               echo "=== BUILD CURL $CURL_VERSION ==="
               rm -rf /tmp/curl-src /tmp/curl.tar.xz
@@ -95,7 +97,7 @@ jobs:
               make install
 
               echo "=== CURL RESULT ==="
-              LD_LIBRARY_PATH="$PREFIX/lib64:$PREFIX/lib" "$PREFIX/bin/curl" --version
+              "$PREFIX/bin/curl" --version
               find "$PREFIX" -maxdepth 2 -type f -name "libcurl.so*" | sort
 
               echo "=== FETCH TRANSMISSION 4.1.1 ==="
