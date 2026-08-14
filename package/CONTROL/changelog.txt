@@ -1,0 +1,5 @@
+4.1.1
+- Rebuilt Transmission 4.1.1 for ASUSTOR x86-64 / legacy ADM.
+- Bundled private curl, OpenSSL 3, C++ runtime and CA trust.
+- Verified GLIBC compatibility, relative $ORIGIN runtime lookup and HTTPS certificate validation.
+- Preserved Matt-compatible config migration and service behavior using clean POSIX shell.
