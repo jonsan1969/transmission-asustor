@@ -13,7 +13,7 @@ jobs:
       - name: Pull pinned manylinux2014 build environment
         run: docker pull quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
 
-      - name: Build private OpenSSL and curl, then configure Transmission 4.1.1
+      - name: Build OpenSSL, curl and Transmission 4.1.1, then audit ABI
         run: |
           set -euxo pipefail
           docker run --rm \
@@ -134,4 +134,42 @@ jobs:
 
               echo "=== CONFIGURE SUCCEEDED ==="
               cmake -LA -N /tmp/transmission-build | grep -E "^(CMAKE_|CURL_|OPENSSL_|ENABLE_|INSTALL_|USE_SYSTEM_|WITH_)" | sort || true
+
+              echo "=== BUILD TRANSMISSION 4.1.1 ==="
+              cmake --build /tmp/transmission-build --parallel "$(nproc)"
+
+              echo "=== TRANSMISSION BINARIES ==="
+              find /tmp/transmission-build -type f -name "transmission-*" -perm /111 -print | sort
+
+              echo "=== VERSION SMOKE TEST ==="
+              DAEMON=$(find /tmp/transmission-build -type f -name "transmission-daemon" -perm /111 | head -1)
+              test -n "$DAEMON"
+              "$DAEMON" --version
+
+              echo "=== ELF ABI AUDIT: TRANSMISSION EXECUTABLES ==="
+              while IFS= read -r elf; do
+                if file "$elf" | grep -q "ELF 64-bit"; then
+                  echo "--- $elf ---"
+                  file "$elf"
+                  readelf -l "$elf" | grep "Requesting program interpreter" || true
+                  readelf -d "$elf" | grep -E "NEEDED|RPATH|RUNPATH" || true
+                  echo "max GLIBC:    $(strings "$elf" | grep -oE "GLIBC_[0-9.]+" | sort -V | tail -1 || true)"
+                  echo "max GLIBCXX:  $(strings "$elf" | grep -oE "GLIBCXX_[0-9.]+" | sort -V | tail -1 || true)"
+                  echo "max CXXABI:   $(strings "$elf" | grep -oE "CXXABI_[0-9.]+" | sort -V | tail -1 || true)"
+                fi
+              done < <(find /tmp/transmission-build -type f -name "transmission-*" -perm /111 | sort)
+
+              echo "=== ELF ABI AUDIT: PRIVATE DEPENDENCIES ==="
+              while IFS= read -r elf; do
+                if file "$elf" | grep -q "ELF 64-bit"; then
+                  echo "--- $elf ---"
+                  file "$elf"
+                  readelf -d "$elf" | grep -E "NEEDED|RPATH|RUNPATH" || true
+                  echo "max GLIBC:    $(strings "$elf" | grep -oE "GLIBC_[0-9.]+" | sort -V | tail -1 || true)"
+                  echo "max GLIBCXX:  $(strings "$elf" | grep -oE "GLIBCXX_[0-9.]+" | sort -V | tail -1 || true)"
+                  echo "max CXXABI:   $(strings "$elf" | grep -oE "CXXABI_[0-9.]+" | sort -V | tail -1 || true)"
+                fi
+              done < <(find "$PREFIX/lib" "$PREFIX/lib64" -maxdepth 1 -type f \( -name "*.so" -o -name "*.so.*" \) 2>/dev/null | sort)
+
+              echo "=== BUILD + ABI AUDIT SUCCEEDED ==="
             '
