@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:06 CEST
+Last updated: 2026-08-14 22:14 CEST
 
 ## Goal
 
@@ -52,17 +52,6 @@ Original archived 2.92/2.94/3.00 APKs were re-opened and compared directly. The 
 
 An out-of-band backup of the installed Matt 3.00 state was already created before the first live package attempt. Keep it untouched until the live 4.1.1 upgrade is fully validated.
 
-## Native APK build before first live attempt
-
-GitHub Actions run #5 / run id `31829954975` produced a structurally valid APKG 2.0:
-
-```text
-transmission_4.1.1_x86-64.apk
-11,893,267 bytes
-```
-
-The package contained exactly `apkg-version`, `control.tar.gz`, `data.tar.gz`; user `config/` was empty in the payload; migration/service gates passed.
-
 ## First live App Central attempt — FAILED SAFELY
 
 At 2026-08-14 21:27 local time, ADM Manual Install accepted and displayed the 4.1.1 metadata but installation returned:
@@ -71,41 +60,21 @@ At 2026-08-14 21:27 local time, ADM Manual Install accepted and displayed the 4.
 Install App failed. (Ref. -161)
 ```
 
-After failure, App Central still showed **Transmission — Matt / 3.00**, stopped. No evidence of replacement or state loss was observed. Do not retry the same APK.
+After failure, App Central still showed **Transmission — Matt / 3.00**, stopped. No evidence of replacement or state loss was observed. The original run-#5 APK must not be retried.
 
-Reinspection of the original Matt 3.00 CONTROL archive exposed a presentation/legacy-ADM compatibility gap in our first APK: Matt ships:
+Reinspection of Matt 3.00 exposed a concrete CONTROL compatibility gap: the old package includes `icon.png`, `icon-enable.png`, `icon-disable.png`, and `license.txt`, while the first 4.1.1 APK did not. Ref. -161 is not proven to map specifically to that omission.
 
-```text
-icon.png
-icon-enable.png
-icon-disable.png
-license.txt
-```
+## CONTROL asset correction — GREEN
 
-Our first APK omitted those files. The exact meaning of ADM Ref. -161 is not proven, so the omission is treated as a concrete package defect/candidate cause rather than a proven error-code mapping.
+Transmission 4.1.1 upstream `COPYING` was added as `package/CONTROL/license.txt`.
 
-## CONTROL asset correction — CODE CHANGED, REBUILD REQUIRED
-
-Transmission 4.1.1's current `COPYING` text was taken from the upstream `4.1.1` tag and added as:
-
-```text
-package/CONTROL/license.txt
-```
-
-Commit:
+License commit:
 
 ```text
 4d37e9025b8686d599de0e1a03fdbd3c143b6bae
 ```
 
-The APK packager was then hardened to restore Matt 3.00's proven 90x90 legacy ADM icons from the pinned historical ASUSTOR APK, with SHA-256 verification before extraction:
-
-```text
-source: https://appdownload.asustor.com/0010_54837_1590279933_transmission_3.00_x86-64.apk
-SHA-256: f2840d2d74141233df160d3f44317d09c0bfc1f272afd8f152bd7c8d6f775cf4
-```
-
-Only `icon.png`, `icon-enable.png`, and `icon-disable.png` are extracted into the new CONTROL tree. The packager validates PNG signature, IHDR and exact 90x90 dimensions, requires the three icons plus `license.txt`, and verifies them again after `control.tar.gz` round-trip.
+The APK packager was hardened to restore Matt 3.00's proven 90x90 legacy ADM icons from the pinned historical APK and validate them before and after packaging. It also requires `license.txt`.
 
 Packager commit:
 
@@ -113,17 +82,76 @@ Packager commit:
 6a240ed444c84a353ca51f01842e958aa31a8c70
 ```
 
-This preserves our own 4.1.1 lifecycle/start-stop implementation; only the proven legacy ADM presentation assets are inherited from Matt.
+Pinned Matt 3.00 source APK SHA-256:
 
-## Mandatory next step
+```text
+f2840d2d74141233df160d3f44317d09c0bfc1f272afd8f152bd7c8d6f775cf4
+```
 
-1. Wait for the GitHub Actions build triggered by the CONTROL/packager changes.
-2. Require the complete workflow and native APK gate to pass.
-3. Download and inspect the newly built APK, confirming `license.txt` and all three 90x90 PNG icons are physically present in `control.tar.gz` alongside the existing lifecycle scripts.
-4. Update this checkpoint with the green run ID/artifact/hash/size.
-5. Only then retry Manual Install on the AS-608T while Matt 3.00 remains stopped.
+Only the legacy presentation assets are inherited; the 4.1.1 lifecycle/start-stop implementation remains ours.
 
-Do **not** install the old run-#5 APK again.
+## Corrected native APK — RUN #7 GREEN
+
+GitHub Actions:
+
+```text
+run #7
+run id: 31836218637
+head commit: 6a240ed444c84a353ca51f01842e958aa31a8c70
+status: completed
+conclusion: success
+```
+
+Artifact:
+
+```text
+name: transmission-4.1.1-asustor-x86_64-apk
+artifact id: 9232775155
+GitHub artifact ZIP size: 11,922,322 bytes
+```
+
+The artifact was downloaded and the finished APK was independently opened and inspected:
+
+```text
+transmission_4.1.1_x86-64.apk
+size: 11,918,547 bytes
+SHA-256: 06fc6ae122357d3473aaa4346a16ef02ed947a4873e452bce2341414dcdbad4e
+```
+
+`control.tar.gz` physically contains:
+
+```text
+changelog.txt
+config.json
+description.txt
+icon.png            90x90 PNG
+icon-enable.png     90x90 PNG
+icon-disable.png    90x90 PNG
+license.txt
+post-install.sh
+pre-install.sh
+start-stop.sh
+```
+
+Round-trip inspection also confirmed that packaged `config/` remains empty in `data.tar.gz`.
+
+**CORRECTED NATIVE APK / LEGACY CONTROL ASSETS: PASS.**
+
+## Current next step
+
+Retry **ADM App Central -> Manual Install** using only the corrected run-#7 APK while Matt Transmission 3.00 remains stopped.
+
+After installation, do not immediately declare success. Verify:
+
+1. App Central now reports Transmission 4.1.1;
+2. daemon path/version and `admin:administrators` identity;
+3. RPC/WebUI on port 9091;
+4. settings/download paths survived;
+5. torrent/resume state survived;
+6. tracker/HTTPS operation works;
+7. Download Center's separate `transmissiond` remains untouched.
+
+Keep the independent Matt 3.00 state backup untouched until the full live upgrade validation passes.
 
 ## Working rule — mandatory checkpoint discipline
 
