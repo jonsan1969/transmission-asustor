@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:14 CEST
+Last updated: 2026-08-14 22:22 CEST
 
 ## Goal
 
@@ -137,21 +137,66 @@ Round-trip inspection also confirmed that packaged `config/` remains empty in `d
 
 **CORRECTED NATIVE APK / LEGACY CONTROL ASSETS: PASS.**
 
+## First successful live App Central upgrade — INSTALLED
+
+The corrected run-#7 APK was installed through ADM App Central Manual Install while Matt Transmission 3.00 was stopped.
+
+App Central now reports:
+
+```text
+Transmission
+maintainer: jonsan1969
+version: 4.1.1
+```
+
+This confirms that ADM accepted the corrected package as the installed `transmission` application and replaced the old Matt 3.00 package registration.
+
+The App Central detail page still displays Matt-era catalog artwork/download metadata; this is treated as stale App Central catalog presentation data, not content shipped by the new APK.
+
+## RPC/WebUI access adjustment — APPLIED
+
+The first WebUI access attempt returned:
+
+```text
+403: Forbidden
+```
+
+Inspection of the migrated `settings.json` showed the preserved Matt-era RPC access policy:
+
+```text
+"rpc-bind-address": "0.0.0.0",
+"rpc-enabled": true,
+"rpc-host-whitelist": "",
+"rpc-host-whitelist-enabled": true,
+"rpc-port": 9091,
+"rpc-url": "/transmission/",
+"rpc-whitelist": "127.0.0.1,::1",
+"rpc-whitelist-enabled": true
+```
+
+This proves that the old configuration was restored rather than replaced by package defaults. For LAN WebUI access, the live configuration was adjusted while Transmission was stopped to:
+
+```text
+"rpc-whitelist": "127.0.0.1,::1,192.168.*.*",
+"rpc-whitelist-enabled": true,
+"rpc-host-whitelist-enabled": false
+```
+
+The original independent Matt 3.00 state backup remains untouched.
+
 ## Current next step
 
-Retry **ADM App Central -> Manual Install** using only the corrected run-#7 APK while Matt Transmission 3.00 remains stopped.
+Start Transmission 4.1.1 from App Central and validate the live upgraded service before declaring the migration complete:
 
-After installation, do not immediately declare success. Verify:
+1. WebUI opens successfully on port 9091 after the RPC access adjustment;
+2. daemon path/version is `/usr/local/AppCentral/transmission/bin/transmission-daemon` / Transmission 4.1.1;
+3. daemon runs as `admin` and Download Center's separate root `transmissiond` remains untouched;
+4. existing settings/download paths survived;
+5. torrent count/state and resume data survived;
+6. tracker/HTTPS operation works with verified TLS;
+7. no stale isolated test daemon/tree exists.
 
-1. App Central now reports Transmission 4.1.1;
-2. daemon path/version and `admin:administrators` identity;
-3. RPC/WebUI on port 9091;
-4. settings/download paths survived;
-5. torrent/resume state survived;
-6. tracker/HTTPS operation works;
-7. Download Center's separate `transmissiond` remains untouched.
-
-Keep the independent Matt 3.00 state backup untouched until the full live upgrade validation passes.
+Keep the independent Matt 3.00 state backup untouched until all live checks pass.
 
 ## Working rule — mandatory checkpoint discipline
 
