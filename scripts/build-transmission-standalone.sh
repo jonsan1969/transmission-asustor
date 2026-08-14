@@ -25,9 +25,10 @@ cmake --version | head -1
 /lib64/libc.so.6 | head -1 || true
 
 echo "=== BUILD PREREQUISITES ==="
-yum -y install perl-IPC-Cmd perl-Time-Piece
+yum -y install perl-IPC-Cmd perl-Time-Piece patchelf
 perl -MIPC::Cmd -e 'print qq(IPC::Cmd OK\n)'
 perl -MTime::Piece -e 'print qq(Time::Piece OK\n)'
+patchelf --version
 
 echo "=== BUILD OPENSSL $OPENSSL_VERSION ==="
 rm -rf /tmp/openssl-src /tmp/openssl.tar.gz "$PREFIX"
@@ -48,7 +49,7 @@ curl -L --fail --retry 3 -o /tmp/curl.tar.xz "https://curl.se/download/curl-$CUR
 mkdir /tmp/curl-src
 tar -xJf /tmp/curl.tar.xz -C /tmp/curl-src --strip-components=1
 cd /tmp/curl-src
-LDFLAGS="-L$PREFIX/lib64 -L$PREFIX/lib -Wl,-rpath,\$ORIGIN/../lib -Wl,--disable-new-dtags" \
+LDFLAGS="-L$PREFIX/lib64 -L$PREFIX/lib" \
 CPPFLAGS="-I$PREFIX/include" \
 ./configure \
   --prefix="$PREFIX" --with-openssl="$PREFIX" --enable-shared --disable-static \
@@ -94,6 +95,16 @@ cp -L "$PREFIX/lib64/libcrypto.so.3" "$STAGE/lib/libcrypto.so.3"
 cp -L "$(g++ -print-file-name=libstdc++.so.6)" "$STAGE/lib/libstdc++.so.6"
 cp -L "$(gcc -print-file-name=libgcc_s.so.1)" "$STAGE/lib/libgcc_s.so.1"
 cp -L "$PREFIX/bin/curl" "$STAGE/bin/curl"
+
+# Normalize the finished diagnostic curl rather than trying to preserve $ORIGIN
+# through shell -> configure -> libtool -> linker quoting. The final staged
+# executable must have exactly one relocatable RPATH and no build-prefix leak.
+patchelf --force-rpath --set-rpath '$ORIGIN/../lib' "$STAGE/bin/curl"
+test "$(patchelf --print-rpath "$STAGE/bin/curl")" = '$ORIGIN/../lib'
+if readelf -d "$STAGE/bin/curl" | grep -Fq '/opt/transmission-deps'; then
+  echo "ERROR: staged curl still contains build-prefix RPATH/RUNPATH" >&2
+  exit 1
+fi
 
 if [ -d "$PREFIX/lib64/ossl-modules" ]; then
   mkdir -p "$STAGE/lib/ossl-modules"
