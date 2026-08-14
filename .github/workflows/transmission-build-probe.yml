@@ -105,6 +105,11 @@ jobs:
               git clone --depth 1 --branch 4.1.1 --recurse-submodules \
                 https://github.com/transmission/transmission.git /tmp/transmission-src
 
+              echo "=== PATCH GCC 10 CONSTEXPR COMPATIBILITY ==="
+              grep -q "constexpr bool is_ipv6_6to4() const noexcept" /tmp/transmission-src/libtransmission/net.h
+              sed -i "/is_ipv6_6to4() const noexcept/s/constexpr //" /tmp/transmission-src/libtransmission/net.h
+              grep -n -B2 -A3 "is_ipv6_6to4" /tmp/transmission-src/libtransmission/net.h
+
               echo "=== CONFIGURE MINIMAL DAEMON BUILD ==="
               cmake -S /tmp/transmission-src -B /tmp/transmission-build \
                 -DCMAKE_BUILD_TYPE=Release \
