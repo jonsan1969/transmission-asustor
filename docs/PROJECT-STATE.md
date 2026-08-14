@@ -100,6 +100,8 @@ commit 5473e25b86c4652903c15d3fb4484c37e0f649da
 
 That run proved the corrected staged curl RPATH and completed green.
 
+The cleaned generic ASUSTOR x86-64 workflow has also completed green under the new naming scheme.
+
 ## Clean active GitHub layout
 
 Active build workflow:
@@ -126,16 +128,26 @@ Active build script:
 scripts/build-transmission-standalone.sh
 ```
 
-Historical probe workflows have been removed from the active tree now that their findings are incorporated into the reproducible final build and `docs/BUILD-NOTES.md`. Their history remains in Git.
+Historical probe workflows have been removed from the active tree now that their findings are incorporated into the reproducible final build and documentation. Their history remains in Git.
 
-Removed cleanup files/workflows include:
+## Historical ASUSTOR package findings
 
-- `FULL_ACCESS_TEST.txt`
-- root `toolchain-probe.yml.txt`
-- `.github/workflows/toolchain-probe.yml`
-- `.github/workflows/modern-abi-probe.yml`
-- `.github/workflows/transmission-build-probe.yml`
-- old `.github/workflows/transmission-standalone-build.yml`
+Archived native Transmission packages from the 2.92, 2.94 and 3.00 eras have been inspected. Durable packaging findings are recorded in:
+
+```text
+docs/PACKAGING-HISTORY.md
+```
+
+The key compatibility decision is to retain **Matt's upgrade/migration semantics** in the new package:
+
+- preserve modern `config/` state during upgrade;
+- also support migration from older layouts where state lived outside the modern `config/` tree;
+- restore settings, torrent metadata, resume data, DHT state, blocklists and statistics after package replacement;
+- exclude obsolete program payload (`CONTROL`, `bin`, `lib`, old web files) when migrating an older package tree.
+
+The implementation should retain the behavior but use clean POSIX shell and explicit error handling.
+
+Historical package inspection also showed that Matt's released ELF executables were stripped. The current standalone bundle is intentionally still unstripped during validation. Final release packaging should strip deliverable ELF files only **after** ABI/RPATH/TLS validation and then run a post-strip sanity check before creating the `.apk`.
 
 ## TLS policy
 
@@ -158,7 +170,7 @@ A future `.apk` must preserve existing Transmission configuration/state includin
 - blocklists
 - statistics
 
-Matt's original package layout and CONTROL files remain under `package/` as the packaging compatibility reference.
+Matt's original package layout and CONTROL files remain under `package/` as the direct compatibility reference; `docs/PACKAGING-HISTORY.md` records the broader comparison against older archived packages.
 
 ## Current next step
 
@@ -168,4 +180,4 @@ Do **not** touch or replace the installed App Central Transmission package until
 
 ## Working rule
 
-This file is the authoritative compact project checkpoint. `docs/BUILD-NOTES.md` contains deeper technical history; GitHub Actions holds raw build logs/artifacts.
+This file is the authoritative compact project checkpoint. `docs/BUILD-NOTES.md` contains deeper technical build history, `docs/PACKAGING-HISTORY.md` contains historical App Central packaging/migration findings, and GitHub Actions holds raw build logs/artifacts.
