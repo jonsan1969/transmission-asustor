@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:30 CEST
+Last updated: 2026-08-14 22:34 CEST
 
 ## Goal
 
@@ -57,9 +57,9 @@ maintainer: jonsan1969
 version: 4.1.1
 ```
 
-The daemon runs from the correct path as admin and WebUI works on 9091 after adjusting the migrated/new RPC policy to allow the local LAN.
+The daemon runs from the correct path as admin and WebUI works on 9091 after adjusting the RPC policy to allow the local LAN.
 
-However direct filesystem inspection showed:
+However direct filesystem inspection after the automatic package replacement showed:
 
 ```text
 /usr/local/AppCentral/transmission/config/torrents -> 0 files
@@ -84,7 +84,7 @@ The exact independent backups are:
 
 Do not substitute similarly named archives elsewhere on the NAS.
 
-The config backup was inspected read-only with `tar -tzf` and its real archive root is:
+The config backup was inspected read-only with `tar -tzf`; archive root:
 
 ```text
 usr/local/AppCentral/transmission/config/
@@ -102,21 +102,53 @@ torrents/*.torrent
 resume/*.resume
 ```
 
-The initial path counts returned 534 entries matching `/torrents/` and 534 matching `/resume/`; each count includes the directory entry itself, so the expected actual file count is **533 torrent files and 533 resume files**, pending an exact extension-only count.
+Exact extension-only counts in the restored tree are:
+
+```text
+533 *.torrent
+533 *.resume
+```
 
 **INDEPENDENT CONFIG BACKUP CONTENTS: PASS.**
 
-Keep both backup archives untouched until the restored 4.1.1 installation is fully validated.
+## Manual Matt 3.00 state restore — PASS
+
+With Transmission 4.1.1 stopped, the empty/new 4.1.1 config tree was preserved as:
+
+```text
+/usr/local/AppCentral/transmission/config.empty-4.1.1
+```
+
+The verified config backup was restored to `/` using its observed archive structure, recreating:
+
+```text
+/usr/local/AppCentral/transmission/config
+```
+
+Ownership was corrected recursively to `admin:administrators`.
+
+Post-restore exact counts:
+
+```text
+/usr/local/AppCentral/transmission/config/torrents -> 533 *.torrent
+/usr/local/AppCentral/transmission/config/resume   -> 533 *.resume
+```
+
+**MANUAL STATE RESTORE: PASS.**
+
+Both independent backup archives remain untouched and must stay that way until the restored 4.1.1 installation is fully validated.
 
 ## Immediate next step
 
-1. Ensure Transmission 4.1.1 is stopped before restore work.
-2. Optionally confirm exact expected file counts using extension-only matches for `.torrent` and `.resume`.
-3. Preserve the current empty/new 4.1.1 config directory as diagnostic evidence rather than deleting it blindly.
-4. Restore the verified Matt 3.00 config backup into the correct 4.1.1 config path using the archive's observed directory structure.
-5. Reapply only the LAN RPC access adjustment if the old `settings.json` restores the localhost-only policy.
-6. Start 4.1.1 and verify torrent count/state, resume data, download paths, tracker/HTTPS operation and Download Center isolation.
-7. Separately determine why old ADM Manual Install skipped automatic migration, then fix/rebuild the package hooks before release.
+1. Keep Transmission 4.1.1 stopped while editing the restored old `settings.json`.
+2. Reapply only the required LAN RPC access adjustment to the restored settings:
+   - `rpc-whitelist`: `127.0.0.1,::1,192.168.*.*`
+   - `rpc-whitelist-enabled`: `true`
+   - `rpc-host-whitelist-enabled`: `false`
+3. Start 4.1.1 from App Central.
+4. Verify WebUI shows the restored 533 transfers/state rather than 0.
+5. Verify daemon version/path/user, download paths, resume state, tracker/HTTPS operation and Download Center isolation.
+6. Separately determine why old ADM Manual Install skipped automatic migration, then fix/rebuild the package hooks before release.
 
 ## Working rule — mandatory checkpoint discipline
 
