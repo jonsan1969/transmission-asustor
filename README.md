@@ -1,41 +1,103 @@
 # transmission-asustor
 
-Cross-build project for running **Transmission 4.1.1** on a legacy **ASUSTOR AS-608T** (x86-64).
+Modern **Transmission 4.1.1** build for **ASUSTOR x86-64 NAS** systems, with an intentionally old Linux ABI baseline for legacy ADM hardware.
 
-## Target
+## Build target
 
-- NAS: ASUSTOR AS-608T
-- Architecture: x86-64
-- Kernel: 3.12.20
-- Runtime glibc: 2.22
-- Transmission target: 4.1.1
-- Existing App Central package: Transmission 3.00, maintained by Matt
+- Architecture: **x86-64**
+- Maximum required glibc from the audited bundle: **GLIBC_2.17**
+- Transmission: **4.1.1**
+- OpenSSL: **3.5.7**
+- curl: **8.21.0**
+- Private runtime: curl, OpenSSL, `libstdc++`, `libgcc_s` and bundled CA trust
+- Relocatable private-library lookup via `$ORIGIN/../lib`
+
+The GitHub Actions artifact is named:
+
+```text
+transmission-4.1.1-asustor-x86_64-glibc217
+```
+
+## Compatibility
+
+The technical compatibility contract is:
+
+```text
+ASUSTOR x86-64 + glibc >= 2.17
+```
+
+The project was created for the legacy **AS-6 series**, whose desktop and rack models use a 64-bit Intel Atom platform. The first live validation target is an **AS-608T** running ADM with glibc 2.22.
+
+Expected AS-6 family candidates include:
+
+- AS-602T
+- AS-604T
+- AS-606T
+- AS-608T
+- AS-604RS / AS-604RD
+- AS-609RS / AS-609RD
+
+These models should be treated as **expected compatible until physically tested**. Newer ASUSTOR x86-64 models with a sufficiently new glibc should also satisfy the binary ABI requirement, but App Central package integration may still vary by ADM generation.
+
+The build is **not** for older 32-bit x86 ASUSTOR models such as the AS-2 / AS-3 generation.
+
+## Build status
+
+The current build pipeline verifies all of the following before publishing the artifact:
+
+- Transmission 4.1.1 compiles successfully with GCC 10 / C++17
+- staged binaries use the private bundle rather than the builder prefix
+- staged `curl` and `transmission-daemon` use relocatable `$ORIGIN/../lib` lookup
+- no `/opt/transmission-deps` runtime dependency leaks into the final bundle
+- bundled CA trust performs a real certificate-verified HTTPS request
+- `transmission-daemon --version` runs with `LD_LIBRARY_PATH` unset
+- all staged ELF files pass the configured ABI audit
+
+The Transmission executables currently audit at:
+
+```text
+GLIBC_2.17
+GLIBCXX_3.4.19
+CXXABI_1.3.5
+```
+
+The supplied private GCC runtime keeps the bundle independent of an old ADM `libstdc++`.
 
 ## Build strategy
 
-The existing ASUSTOR package is dynamically linked and ships private copies of curl, OpenSSL, libevent and zlib under the application `lib/` directory. This project follows the same model rather than depending on ADM's old system SSL stack.
+The bundle is intentionally self-contained instead of relying on ADM's old SSL/C++ stack. It includes private networking, crypto and C++ runtime libraries plus CA trust and uses a small wrapper for the bundled TLS environment.
 
-The first GitHub Actions stage is deliberately non-destructive: it downloads and probes ASUSTOR's official legacy x86-64 cross-toolchain so we can establish the compiler, sysroot and target ABI before attempting the full dependency stack.
+Historical probe workflows used to establish the toolchain and ABI strategy have been removed from the active Actions list now that the build is reproducible. Their commits and results remain available in Git history and in `docs/BUILD-NOTES.md`.
 
-Later stages will build a **standalone test bundle first**. The bundle must be copied to a separate directory on the NAS and tested with `--version`, `file` and `ldd` before any App Central upgrade is attempted.
+## NAS validation
 
-## Packaging
+The standalone artifact must be tested in a **separate directory** before the installed App Central package is touched. Initial validation should include:
 
-Matt's original package layout and CONTROL scripts are retained as a compatibility reference. Existing `config/` data — including settings, `.torrent` files, resume state, DHT, blocklists and statistics — must survive an upgrade.
+1. `file` and program-interpreter inspection
+2. `ldd` / resolved-library verification
+3. `transmission-daemon --version`
+4. isolated daemon startup with a temporary config and non-conflicting ports
+5. HTTPS/TLS verification
 
-The installed NAS package was locally modified in 2022 with:
+Only after that should an ASUSTOR `.apk` upgrade package be produced.
+
+## Packaging and existing data
+
+Matt's original App Central package layout and CONTROL scripts are retained under `package/` as a compatibility reference.
+
+An eventual upgrade must preserve the existing Transmission configuration and state, including settings, `.torrent` files, resume data, DHT state, blocklists and statistics.
+
+The currently installed AS-608T package had previously been modified locally with:
 
 ```sh
 TR_CURL_SSL_NO_VERIFY=1; export TR_CURL_SSL_NO_VERIFY
 ```
 
-That line is **not present in Matt's original Transmission 3.00 package**. It was a local HTTPS workaround and will not be carried into the new package. The new build will use proper CA certificate verification.
+That workaround is **not** part of this rebuild. The new bundle uses proper certificate verification with bundled CA trust.
 
-## Current phase
+## Project notes
 
-1. Probe the official ASUSTOR x86-64 toolchain.
-2. Determine its compiler/sysroot/glibc baseline.
-3. Build a modern private dependency stack compatible with the NAS.
-4. Cross-build Transmission 4.1.1.
-5. Produce a standalone test bundle.
-6. Only after successful NAS validation, build an ASUSTOR `.apk` upgrade package.
+- `docs/PROJECT-STATE.md` — compact current checkpoint and next step
+- `docs/BUILD-NOTES.md` — durable technical findings and build rationale
+- `scripts/build-transmission-standalone.sh` — reproducible bundle build and audit
+- `.github/workflows/build.yml` — active GitHub Actions build
