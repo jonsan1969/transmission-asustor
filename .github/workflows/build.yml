@@ -9,6 +9,7 @@ on:
       - .github/workflows/build.yml
       - scripts/build-transmission-standalone.sh
       - scripts/finalize-transmission-release.sh
+      - scripts/prepare-apkg-payload.sh
 
 jobs:
   build:
@@ -20,23 +21,31 @@ jobs:
       - name: Pull pinned manylinux2014 build environment
         run: docker pull quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
 
-      - name: Build, audit and finalize ASUSTOR x86-64 bundle
+      - name: Build, audit, finalize and prepare APKG payload
         run: |
           set -euxo pipefail
-          chmod +x scripts/build-transmission-standalone.sh scripts/finalize-transmission-release.sh
+          chmod +x scripts/build-transmission-standalone.sh scripts/finalize-transmission-release.sh scripts/prepare-apkg-payload.sh
           docker run --rm \
             -e MANPATH="" \
             -v "$PWD:/work" \
             -w /work \
             quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77 \
-            /bin/bash -lc '/work/scripts/build-transmission-standalone.sh && /work/scripts/finalize-transmission-release.sh'
+            /bin/bash -lc '/work/scripts/build-transmission-standalone.sh && /work/scripts/finalize-transmission-release.sh && /work/scripts/prepare-apkg-payload.sh'
 
-      - name: Upload ASUSTOR x86-64 bundle
+      - name: Upload ASUSTOR x86-64 golden standalone bundle
         if: success()
         uses: actions/upload-artifact@v7
         with:
           name: transmission-4.1.1-asustor-x86_64-glibc217
           path: transmission-standalone.tar.gz
+          if-no-files-found: error
+
+      - name: Upload minimal APKG payload
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: transmission-4.1.1-asustor-x86_64-apkg-payload
+          path: transmission-apkg-payload.tar.gz
           if-no-files-found: error
 
       - name: Upload runtime diagnostics
@@ -61,4 +70,12 @@ jobs:
         with:
           name: transmission-asustor-x86_64-release-check
           path: standalone-release-check.txt
+          if-no-files-found: warn
+
+      - name: Upload APKG payload diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: transmission-asustor-x86_64-apkg-payload-check
+          path: apkg-payload-check.txt
           if-no-files-found: warn
