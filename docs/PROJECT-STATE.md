@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:22 CEST
+Last updated: 2026-08-14 22:25 CEST
 
 ## Goal
 
@@ -46,11 +46,13 @@ Deliberate improvements over Matt:
 - copy `config/.` so hidden files are preserved
 - fail closed on unsupported/incomplete upgrade environment
 
-Original archived 2.92/2.94/3.00 APKs were re-opened and compared directly. The **3.00 -> 4.1.1 state migration path remains approved**.
+Original archived 2.92/2.94/3.00 APKs were re-opened and compared directly. Matt 3.00's own lifecycle hooks only back up and restore state when `APKG_PKG_STATUS=upgrade`; this assumption now requires physical ADM verification for Manual Install because the first successful 4.1.1 replacement did not restore state.
 
 ## Independent live-state backup
 
 An out-of-band backup of the installed Matt 3.00 state was already created before the first live package attempt. Keep it untouched until the live 4.1.1 upgrade is fully validated.
+
+Known backup files visible in `/volume1/home/admin` before live upgrade include `Pre-update.tar.zip` and `Pre-reboot.tar.zip`. Do not assume contents without inspecting the archive.
 
 ## First live App Central attempt — FAILED SAFELY
 
@@ -137,7 +139,7 @@ Round-trip inspection also confirmed that packaged `config/` remains empty in `d
 
 **CORRECTED NATIVE APK / LEGACY CONTROL ASSETS: PASS.**
 
-## First successful live App Central upgrade — INSTALLED
+## First successful live App Central replacement — PACKAGE INSTALLED, STATE MIGRATION FAILED
 
 The corrected run-#7 APK was installed through ADM App Central Manual Install while Matt Transmission 3.00 was stopped.
 
@@ -151,30 +153,11 @@ version: 4.1.1
 
 This confirms that ADM accepted the corrected package as the installed `transmission` application and replaced the old Matt 3.00 package registration.
 
-The App Central detail page still displays Matt-era catalog artwork/download metadata; this is treated as stale App Central catalog presentation data, not content shipped by the new APK.
+The App Central detail page still displays Matt-era catalog artwork/download metadata; this is stale App Central catalog presentation data, not content shipped by the new APK.
 
-## RPC/WebUI access adjustment — APPLIED
+### RPC/WebUI access
 
-The first WebUI access attempt returned:
-
-```text
-403: Forbidden
-```
-
-Inspection of the migrated `settings.json` showed the preserved Matt-era RPC access policy:
-
-```text
-"rpc-bind-address": "0.0.0.0",
-"rpc-enabled": true,
-"rpc-host-whitelist": "",
-"rpc-host-whitelist-enabled": true,
-"rpc-port": 9091,
-"rpc-url": "/transmission/",
-"rpc-whitelist": "127.0.0.1,::1",
-"rpc-whitelist-enabled": true
-```
-
-This proves that the old configuration was restored rather than replaced by package defaults. For LAN WebUI access, the live configuration was adjusted while Transmission was stopped to:
+The first WebUI access returned `403: Forbidden`. The live `settings.json` contained restrictive RPC values (`rpc-whitelist` localhost-only and host-whitelist enabled), so LAN access was adjusted while Transmission was stopped to:
 
 ```text
 "rpc-whitelist": "127.0.0.1,::1,192.168.*.*",
@@ -182,21 +165,39 @@ This proves that the old configuration was restored rather than replaced by pack
 "rpc-host-whitelist-enabled": false
 ```
 
-The original independent Matt 3.00 state backup remains untouched.
+After restart, WebUI opened successfully on port 9091.
 
-## Current next step
+### Critical state result
 
-Start Transmission 4.1.1 from App Central and validate the live upgraded service before declaring the migration complete:
+WebUI showed **0 Transfers**. Direct filesystem inspection at 22:23 confirmed:
 
-1. WebUI opens successfully on port 9091 after the RPC access adjustment;
-2. daemon path/version is `/usr/local/AppCentral/transmission/bin/transmission-daemon` / Transmission 4.1.1;
-3. daemon runs as `admin` and Download Center's separate root `transmissiond` remains untouched;
-4. existing settings/download paths survived;
-5. torrent count/state and resume data survived;
-6. tracker/HTTPS operation works with verified TLS;
-7. no stale isolated test daemon/tree exists.
+```text
+/usr/local/AppCentral/transmission/config/torrents  -> 0 files
+/usr/local/AppCentral/transmission/config/resume    -> 0 files
+```
 
-Keep the independent Matt 3.00 state backup untouched until all live checks pass.
+The live config directory contained only newly generated 4.1.1-era state (`bandwidth-groups.json`, empty `torrents/`, empty `resume/`, `settings.json`, `stats.json`, and the temporary `settings.json.before-rpc-fix`). The running process was correctly:
+
+```text
+/usr/local/AppCentral/transmission/bin/transmission-daemon --pid-file /var/run/transmission-daemon.pid -g /usr/local/AppCentral/transmission/config
+```
+
+Therefore the package installation and daemon are functional, but the Matt 3.00 torrent/resume state **was not restored by the lifecycle hooks**. The earlier inference that restrictive RPC settings proved successful old-state restoration was incorrect and is superseded by the direct empty torrent/resume counts.
+
+**LIVE PACKAGE INSTALL: PASS.**
+**AUTOMATIC 3.00 STATE MIGRATION: FAIL.**
+
+Most likely hypothesis to test: old ADM Manual Install did not present the lifecycle hooks with `APKG_PKG_STATUS=upgrade` as assumed, so the conditional backup/restore branches were skipped. This is not yet proven; inspect ADM/package-manager evidence before changing the hooks.
+
+## Immediate next step
+
+1. Stop Transmission 4.1.1 again so the empty/new config remains quiescent.
+2. Inspect the independent pre-upgrade archive contents without extracting or modifying them; verify that the original `settings.json`, `torrents/`, `resume/`, `dht.dat`, `stats.json` and blocklists are present.
+3. Inspect available ADM/App Central logs or package-manager traces for the successful Manual Install to determine the actual lifecycle status/environment used by old ADM.
+4. Only after the backup is verified, restore the real Matt 3.00 state into the 4.1.1 config in a controlled manner and validate torrent/resume recovery.
+5. Fix the package hooks so a future 3.00 -> 4.1.1 Manual Install performs migration automatically; rebuild and revalidate before considering the package releasable.
+
+Do not delete or overwrite the independent backup.
 
 ## Working rule — mandatory checkpoint discipline
 
