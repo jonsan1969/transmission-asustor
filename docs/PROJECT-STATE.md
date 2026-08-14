@@ -4,36 +4,69 @@ Last updated: 2026-08-14
 
 ## Goal
 
-Run a modern **Transmission 4.1.1** daemon on the legacy **ASUSTOR AS-608T** while preserving NAS runtime compatibility and the user's existing Transmission configuration/state.
+Build and validate **Transmission 4.1.1** for legacy **ASUSTOR x86-64** NAS systems while preserving compatibility with old ADM runtimes and existing Transmission configuration/state.
 
-The work remains staged and non-destructive: build and validate a standalone bundle first; only after successful NAS validation should the installed App Central package be replaced/upgraded.
+The first physical validation target remains the user's **ASUSTOR AS-608T**.
 
-## Target NAS
+## Compatibility contract
 
-- Model: ASUSTOR AS-608T
+The current standalone bundle is built for:
+
+```text
+ASUSTOR x86-64 + glibc >= 2.17
+```
+
+The final staged Transmission executables audit at:
+
+```text
+GLIBC_2.17
+GLIBCXX_3.4.19
+CXXABI_1.3.5
+```
+
+The bundle ships its own compatible `libstdc++.so.6` and `libgcc_s.so.1`, plus private curl/OpenSSL libraries, so it does not depend on ADM providing a sufficiently new C++ runtime.
+
+### Legacy AS-6 family
+
+The project was created for the x64 AS-6 generation. Expected candidates include:
+
+- AS-602T
+- AS-604T
+- AS-606T
+- AS-608T
+- AS-604RS / AS-604RD
+- AS-609RS / AS-609RD
+
+These are **expected compatible but not yet physically verified** except that the AS-608T is the first planned live test system.
+
+Older AS-2 / AS-3 systems are 32-bit x86 and cannot use this x86-64 build.
+
+Newer ASUSTOR x86-64 systems with glibc >= 2.17 should satisfy the binary ABI requirement, although final App Central package integration may differ by ADM generation.
+
+## First live target: AS-608T
+
 - Architecture: x86-64
 - Kernel: 3.12.20
 - Runtime glibc: **2.22**
-- Existing App Central Transmission package: Transmission 3.00, maintained by Matt
-- Existing `config/` data must survive: `settings.json`, torrent/resume files, DHT state, blocklists, stats and related state.
+- Existing App Central Transmission: 3.00
+- Existing config/state must survive any eventual package upgrade.
 
-Two independent Transmission-family services were observed on the NAS:
+Two separate Transmission-family processes exist on this NAS:
 
 - Download Center: `/usr/local/AppCentral/download-center/bin/transmissiond` (root)
 - App Central Transmission: `/usr/local/AppCentral/transmission/bin/transmission-daemon` (admin)
 
-The App Central Transmission instance was observed on RPC port `9091` and peer port `53297`. Do not confuse it with Download Center during later testing.
+The App Central instance was observed on RPC port `9091` and peer port `53297`. Do not confuse it with Download Center during testing.
 
-## Build strategy
+## Current build
 
-The active Build Probe uses pinned `manylinux2014_x86_64` plus **devtoolset-10 / GCC 10**. This provides a modern-enough C++17 compiler while retaining an old Linux/glibc baseline.
+Versions:
 
-Selected private components:
-
+- Transmission **4.1.1**
 - OpenSSL **3.5.7**
 - curl **8.21.0**
-- Transmission **4.1.1**
-- Build dependency prefix: `/opt/transmission-deps`
+- GCC / G++ **10** via devtoolset-10
+- pinned manylinux2014 x86-64 build environment
 
 Compiler flags:
 
@@ -41,103 +74,98 @@ Compiler flags:
 -O2 -march=x86-64 -mtune=generic
 ```
 
-The narrow Transmission 4.1.1 GCC 10 compatibility patch remains required in `libtransmission/net.h`: remove `constexpr` only from `tr_address::is_ipv6_6to4()`. Patch commit:
+Transmission 4.1.1 still receives the narrow GCC 10 source compatibility patch that removes `constexpr` only from `tr_address::is_ipv6_6to4()`.
 
-`0a751f7da64ac618acfbd565eb5823e06eed8db9`
+## Standalone bundle — GREEN
 
-## Build Probe milestone — PASSED
+The standalone build pipeline now passes all current gates:
 
-GitHub Actions run **#7** proved that OpenSSL 3.5.7, curl 8.21.0 and Transmission 4.1.1 compile successfully in the selected environment and that `transmission-daemon --version` executes successfully in the builder.
+- full Transmission 4.1.1 compilation
+- private OpenSSL/curl build
+- private GCC runtime staging
+- relocatable `$ORIGIN/../lib` runtime lookup
+- no runtime dependency on `/opt/transmission-deps`
+- `transmission-daemon --version` with `LD_LIBRARY_PATH` unset
+- staged runtime `ldd` verification
+- bundled CA trust
+- real certificate-verified HTTPS request through staged curl/OpenSSL
+- final staged ELF ABI audit
 
-The workflow was then hardened so a green run is an actual AS-608T glibc gate rather than merely a successful compilation:
-
-- hard maximum required GLIBC: **2.22**
-- audit report persisted as `transmission-abi-audit`
-- GLIBCXX and CXXABI requirements recorded for private-runtime planning
-- probe also runs automatically when its own workflow file changes; manual `workflow_dispatch` remains available
-
-Relevant commits:
-
-- `0af2fb935a5c03b04f42c7b8a51c0dd6c7898fee` — add GLIBC 2.22 gate and ABI artifact
-- `d0aa327d8ce54a66d4b371f50fe22891d1593d1e` — trigger Build Probe when the probe workflow changes
-
-GitHub Actions run **#8** (`31774327556`) completed successfully with the hard ABI gate enabled.
-
-### Verified ABI result from run #8
-
-All six produced Transmission executables audited at:
+Latest known successful pre-cleanup standalone run:
 
 ```text
-max GLIBC:   GLIBC_2.17
-max GLIBCXX: GLIBCXX_3.4.19
-max CXXABI:  CXXABI_1.3.5
+run #8 / 31779016473
+commit 5473e25b86c4652903c15d3fb4484c37e0f649da
 ```
 
-Audited programs:
+That run proved the corrected staged curl RPATH and completed green.
 
-- `transmission-cli`
-- `transmission-daemon`
-- `transmission-create`
-- `transmission-edit`
-- `transmission-remote`
-- `transmission-show`
+## Clean active GitHub layout
 
-Private networking/crypto libraries also pass the GLIBC gate:
-
-- `libcrypto.so.3` — GLIBC_2.17
-- `libssl.so.3` — GLIBC_2.17
-- `libcurl.so.4.8.0` — GLIBC_2.17
-
-**Conclusion:** the generated Transmission/OpenSSL/curl ELF set is below the AS-608T glibc 2.22 ceiling. The basic userspace ABI strategy is therefore validated.
-
-## Remaining runtime/bundle work
-
-The Transmission executables currently depend on:
+Active build workflow:
 
 ```text
-libcurl.so.4
-libssl.so.3
-libcrypto.so.3
-libstdc++.so.6
-libgcc_s.so.1
+.github/workflows/build.yml
 ```
 
-plus normal system libraries (`libc`, `libm`, `libpthread`).
-
-The current build binaries still contain this builder-only RPATH:
+Workflow display name:
 
 ```text
-/opt/transmission-deps/lib:/opt/transmission-deps/lib64:
+Build Transmission 4.1.1 for ASUSTOR x86-64
 ```
 
-That path is not suitable for the NAS. The standalone bundle must therefore:
+Published bundle artifact name:
 
-1. stage Transmission executables and web assets in a self-contained test tree;
-2. ship the selected private OpenSSL/curl libraries;
-3. deliberately ship compatible `libstdc++.so.6` and `libgcc_s.so.1` rather than relying on ADM's old C++ runtime;
-4. replace the builder RPATH with a relative private-library search path (for example `$ORIGIN/../lib`) or use a controlled wrapper/loader strategy;
-5. re-audit the **staged final ELF set**, not merely the build-tree files;
-6. upload the standalone bundle as a GitHub Actions artifact for NAS testing.
+```text
+transmission-4.1.1-asustor-x86_64-glibc217
+```
 
-## NAS validation sequence after bundle creation
+Active build script:
 
-Before touching the installed App Central package, copy the standalone artifact to a separate NAS directory and verify at minimum:
+```text
+scripts/build-transmission-standalone.sh
+```
 
-- `file`
-- program interpreter
-- `ldd` / actual resolved libraries
-- `transmission-daemon --version`
-- daemon startup with an isolated temporary config directory and non-conflicting ports
-- HTTPS/TLS certificate validation
+Historical probe workflows have been removed from the active tree now that their findings are incorporated into the reproducible final build and `docs/BUILD-NOTES.md`. Their history remains in Git.
 
-The old local workaround `TR_CURL_SSL_NO_VERIFY=1` must **not** be carried forward.
+Removed cleanup files/workflows include:
 
-Only after standalone NAS validation should Matt's original package layout/CONTROL scripts be adapted into an upgrade `.apk`, with explicit protection of the existing `config/` directory.
+- `FULL_ACCESS_TEST.txt`
+- root `toolchain-probe.yml.txt`
+- `.github/workflows/toolchain-probe.yml`
+- `.github/workflows/modern-abi-probe.yml`
+- `.github/workflows/transmission-build-probe.yml`
+- old `.github/workflows/transmission-standalone-build.yml`
+
+## TLS policy
+
+The old installed AS-608T package had a local workaround:
+
+```sh
+TR_CURL_SSL_NO_VERIFY=1; export TR_CURL_SSL_NO_VERIFY
+```
+
+It is explicitly excluded from the rebuild. The standalone bundle carries CA trust and has passed certificate-verified HTTPS in CI.
+
+## Upgrade-data preservation
+
+A future `.apk` must preserve existing Transmission configuration/state including:
+
+- `settings.json`
+- `.torrent` files
+- resume state
+- DHT state
+- blocklists
+- statistics
+
+Matt's original package layout and CONTROL files remain under `package/` as the packaging compatibility reference.
 
 ## Current next step
 
-Build the **standalone NAS test bundle** from the now ABI-approved toolchain output, including private C++ runtime libraries and a NAS-appropriate relative library lookup, then run the ABI audit against the staged bundle itself.
+Take the clean green **ASUSTOR x86-64 / GLIBC 2.17+ standalone artifact** and perform the first isolated live validation on the AS-608T in a separate directory with a temporary config and non-conflicting ports.
 
-## Working rule for future sessions
+Do **not** touch or replace the installed App Central Transmission package until that standalone runtime test is successful.
 
-This file is the authoritative compact checkpoint. `docs/BUILD-NOTES.md` contains deeper technical rationale/findings; raw build logs and artifacts remain in GitHub Actions.
+## Working rule
+
+This file is the authoritative compact project checkpoint. `docs/BUILD-NOTES.md` contains deeper technical history; GitHub Actions holds raw build logs/artifacts.
