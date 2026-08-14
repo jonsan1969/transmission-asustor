@@ -1,0 +1,64 @@
+name: Transmission 4.1.1 Build Probe
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-probe:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Pull pinned manylinux2014 build environment
+        run: docker pull quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
+
+      - name: Configure Transmission 4.1.1
+        run: |
+          set -euxo pipefail
+          docker run --rm \
+            -v "$PWD:/work" \
+            -w /work \
+            quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77 \
+            /bin/bash -lc '
+              set -eo pipefail
+              export MANPATH="${MANPATH:-}"
+              source /opt/rh/devtoolset-10/enable
+              set -ux
+
+              echo "=== BUILD ENVIRONMENT ==="
+              gcc --version | head -1
+              g++ --version | head -1
+              cmake --version | head -1
+              /lib64/libc.so.6 | head -1 || true
+
+              echo "=== FETCH TRANSMISSION 4.1.1 ==="
+              rm -rf /tmp/transmission-src /tmp/transmission-build
+              git clone --depth 1 --branch 4.1.1 --recurse-submodules \
+                https://github.com/transmission/transmission.git /tmp/transmission-src
+
+              echo "=== CONFIGURE MINIMAL DAEMON BUILD ==="
+              cmake -S /tmp/transmission-src -B /tmp/transmission-build \
+                -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_C_STANDARD=11 \
+                -DCMAKE_CXX_STANDARD=17 \
+                -DCMAKE_C_FLAGS="-O2 -march=x86-64 -mtune=generic" \
+                -DCMAKE_CXX_FLAGS="-O2 -march=x86-64 -mtune=generic" \
+                -DENABLE_DAEMON=ON \
+                -DENABLE_CLI=ON \
+                -DENABLE_UTILS=ON \
+                -DENABLE_GTK=OFF \
+                -DENABLE_QT=OFF \
+                -DENABLE_MAC=OFF \
+                -DENABLE_TESTS=OFF \
+                -DENABLE_NLS=OFF \
+                -DINSTALL_DOC=OFF \
+                -DINSTALL_LIB=OFF \
+                -DREBUILD_WEB=OFF \
+                -DINSTALL_WEB=ON \
+                -DWITH_SYSTEMD=OFF \
+                -DWITH_CRYPTO=openssl
+
+              echo "=== CONFIGURE SUCCEEDED ==="
+              cmake -LA -N /tmp/transmission-build | grep -E "^(CMAKE_|ENABLE_|INSTALL_|USE_SYSTEM_|WITH_)" | sort || true
+            '
