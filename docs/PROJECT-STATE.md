@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 19:10 CEST
+Last updated: 2026-08-14 20:38 CEST
 
 ## Goal
 
@@ -223,8 +223,12 @@ The final package must preserve at minimum:
 
 Do **not** replace the installed App Central Transmission 3.00 package before the APKG migration path is explicitly validated.
 
-## Working rule
+## Working rule — mandatory checkpoint discipline
 
 This file is the authoritative compact project checkpoint. `docs/BUILD-NOTES.md` contains deeper technical build rationale, `docs/PACKAGING-HISTORY.md` contains historical ASUSTOR package/migration findings, and GitHub Actions holds raw build logs/artifacts.
 
-After every meaningful build result, NAS validation, packaging decision or migration test, update the project documentation before considering that step closed. Chat history is not the authoritative project record.
+**Every successful code/package change and every successful build, validation or NAS test must be followed by an update to `docs/PROJECT-STATE.md` before that step is considered complete.** The checkpoint must record what changed, the relevant commit/run when available, the result, and the next step.
+
+Failed or inconclusive attempts should also be recorded when they change the diagnosis, design or next action.
+
+Chat history is not the authoritative project record.
