@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 21:08 CEST
+Last updated: 2026-08-14 21:20 CEST
 
 ## Goal
 
@@ -84,6 +84,18 @@ http://127.0.0.1:19091/
 ```
 
 **Standalone runtime on AS-608T: PASS.**
+
+### Standalone test environment cleanup — PASS
+
+Before the live package upgrade, the isolated 4.1.1 test daemon was confirmed stopped. Process inspection showed only ASUSTOR Download Center's separate Transmission-family daemon:
+
+```text
+/usr/local/AppCentral/download-center/bin/transmissiond
+```
+
+No process from `/volume1/home/admin/transmission-4.1.1-test` remained, and the isolated test tree was then removed successfully.
+
+**ISOLATED TEST BUILD CLEANUP: PASS.**
 
 ## Golden release and APKG payload — GREEN
 
@@ -257,6 +269,10 @@ For the actual installed **Matt 3.00 -> Transmission 4.1.1** path on the AS-608T
 
 Historical details are recorded in `docs/PACKAGING-HISTORY.md`; review update commit: `cb8c1c757ad688cf143912e88a82fe2a0ffa7de4`.
 
+## Independent live-state backup
+
+An independent out-of-band backup of the existing Matt 3.00 Transmission configuration/state had already been created before this stage of the project. It remains the safety copy for the first live package upgrade and must not be removed until 4.1.1 has been fully validated with the real state.
+
 ## Active GitHub layout
 
 Build workflow:
@@ -291,13 +307,21 @@ scripts/build-asustor-apk.sh
 
 ## Current next step
 
-1. Before touching App Central, create an independent out-of-band backup of the live Matt 3.00 configuration/state directory on the AS-608T.
-2. Verify that backup contains `settings.json`, `torrents/`, `resume/`, `dht.dat`, `stats.json` and any blocklists present on the live installation.
-3. Record the backup verification in this checkpoint.
-4. Only then perform the first controlled live App Central upgrade from Matt 3.00 to Transmission 4.1.1.
-5. After upgrade, verify daemon version, process identity, RPC/WebUI 9091, settings, torrent count/state, resume data and tracker/HTTPS operation before considering the live upgrade successful.
+The build, finished APK, original-package upgrade review, independent state backup and isolated test cleanup are complete.
 
-Do **not** replace the installed App Central Transmission 3.00 package until the independent state backup has been created and verified.
+Next: perform the first controlled live App Central upgrade from Matt Transmission 3.00 to Transmission 4.1.1.
+
+Immediately after installation, verify before declaring success:
+
+1. daemon version is Transmission 4.1.1;
+2. process identity/path is the App Central Transmission daemon, not Download Center;
+3. RPC/WebUI responds on port 9091;
+4. existing settings and download paths survived;
+5. torrent count/state and resume data survived;
+6. trackers/HTTPS operate correctly with proper certificate verification;
+7. no duplicate test daemon or stale isolated test tree exists.
+
+Keep the independent Matt 3.00 state backup untouched until the live upgrade is fully validated.
 
 ## Working rule — mandatory checkpoint discipline
 
