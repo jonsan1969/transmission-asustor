@@ -44,6 +44,33 @@ The design to carry forward is:
 
 The new implementation should keep Matt's migration semantics but use clear POSIX shell and explicit error handling.
 
+### Re-review of original APKs before 4.1.1 live-upgrade
+
+The original 3.00, 2.94, 2.92, Transmission Dansk 2.92 and 2.92-1 APKs were re-opened directly and their CONTROL archives compared with the 4.1.1 package.
+
+Matt 3.00 and 2.94 use the same migration pattern:
+
+```text
+pre-install upgrade:
+  config exists -> cp -af ${CONFIG}/* ${APKG_TEMP_DIR}/
+  no config     -> cp package-root/* to temp, then remove CONTROL/bin/lib/web
+
+post-install upgrade:
+  create config if needed
+  cp -af ${APKG_TEMP_DIR}/* ${CONFIG}/
+```
+
+The 4.1.1 implementation intentionally preserves that behavior while hardening it:
+
+- copies `config/.` rather than `config/*`, so hidden state is not silently omitted;
+- uses a dedicated `${APKG_TEMP_DIR}/transmission-config-backup` directory;
+- writes and requires `.apkg-backup-complete` before restore;
+- treats unknown `APKG_PKG_STATUS` values as errors rather than silently continuing;
+- legacy fallback additionally excludes `share` and `www`, which are program-layout directories in older package generations;
+- lifecycle scripts are strict POSIX `/bin/sh` and do not use Matt's `[[ ... ]]` Bash-isms.
+
+For the real installed upgrade path on the AS-608T — Matt 3.00 -> Transmission 4.1.1 — the existing `config/` directory is the state source, so settings, torrent metadata, resume data, DHT state, blocklists and statistics are copied as one directory tree and restored into the new empty packaged `config/`.
+
 ## Start/stop behavior
 
 Matt's 3.00 package starts Transmission as:
@@ -73,6 +100,20 @@ This matches the live AS-608T process observed during the project:
 ```
 
 The new package should retain the same service identity and configuration location unless live NAS validation exposes a reason not to.
+
+### Start/stop differences deliberately not copied from Matt
+
+Matt 2.94/3.00 also contain several implementation details that are intentionally not carried forward:
+
+- `#!/bin/sh` combined with Bash-style `[[ ... ]]` tests;
+- hard-coded `TRANSMISSION_WEB_HOME=/usr/local/AppCentral/transmission/share/transmission/web`;
+- absolute package paths inside daemon arguments where a package-relative path can be derived;
+- unconditional kernel UDP buffer `sysctl` tuning;
+- dependency on `/lib/lsb/init-functions` despite locally implemented status/wait logic.
+
+The 4.1.1 start-stop script instead derives paths from `${APKG_PKG_DIR:-/usr/local/AppCentral/transmission}`, uses only POSIX shell syntax, sets the current WebUI path at runtime, retains `admin:administrators`, the historical PID file and `start-stop-daemon` service model, waits up to 10 seconds for graceful stop, then falls back to SIGKILL and removes a stale PID file.
+
+The new runtime also uses relocatable `$ORIGIN/../lib` and real CA-verified TLS. The historical `TR_CURL_SSL_NO_VERIFY=1` workaround is not part of the new package.
 
 ## Web UI and App Central integration
 
