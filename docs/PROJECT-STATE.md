@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 20:45 CEST
+Last updated: 2026-08-14 20:50 CEST
 
 ## Goal
 
@@ -95,7 +95,7 @@ The APKG payload contains the six Matt-compatible Transmission programs plus the
 
 The payload is approximately **29.8 MB unpacked**. Further removal is not a goal unless a file is proven unnecessary; the size is predominantly real Transmission 4.1.1 plus the modern private runtime rather than ballast.
 
-## ASUSTOR APKG packaging phase — ACTIVE
+## ASUSTOR APKG packaging phase — NATIVE APK GREEN
 
 Historical native ASUSTOR package format has been re-verified against ASUSTOR's own `apkg-tools.py` implementation:
 
@@ -145,17 +145,17 @@ New script:
 scripts/build-asustor-apk.sh
 ```
 
-The packager is designed to:
+The packager:
 
-1. combine the frozen minimal payload with `package/CONTROL`;
-2. force CONTROL lifecycle scripts executable in the archive;
-3. ship an intentionally empty `config/` directory so no user state can be embedded in the package;
-4. gate the Matt-compatible backup/restore marker and legacy exclusions before packaging;
-5. reject Bash `[[ ... ]]` in CONTROL scripts;
-6. re-check `$ORIGIN/../lib` on packaged Transmission executables;
-7. create APKG 2.0 `apkg-version`, `control.tar.gz`, and `data.tar.gz`;
-8. create `transmission_4.1.1_x86-64.apk` as a ZIP containing exactly those three members;
-9. unpack both internal tarballs again and verify CONTROL/data separation, executable lifecycle hooks and empty packaged config state.
+1. combines the frozen minimal payload with `package/CONTROL`;
+2. forces CONTROL lifecycle scripts executable in the archive;
+3. ships an intentionally empty `config/` directory so no user state can be embedded in the package;
+4. gates the Matt-compatible backup/restore marker and legacy exclusions before packaging;
+5. rejects Bash `[[ ... ]]` in CONTROL scripts;
+6. re-checks `$ORIGIN/../lib` on packaged Transmission executables;
+7. creates APKG 2.0 `apkg-version`, `control.tar.gz`, and `data.tar.gz`;
+8. creates `transmission_4.1.1_x86-64.apk` as a ZIP containing exactly those three members;
+9. unpacks both internal tarballs again and verifies CONTROL/data separation, executable lifecycle hooks and empty packaged config state.
 
 ### Native APK workflow wiring — SUCCESS
 
@@ -165,14 +165,57 @@ Commit:
 bb9a07531f82c15569ba7af256595450f26428a1
 ```
 
-The active workflow now:
+The active workflow:
 
 - runs `scripts/build-asustor-apk.sh` after the existing golden-build/release/APKG-payload gates;
 - uploads `transmission_4.1.1_x86-64.apk` as artifact `transmission-4.1.1-asustor-x86_64-apk`;
 - uploads `asustor-apk-check.txt` even for failed APK packaging attempts;
 - triggers not only on packaging-script changes but also on every `package/CONTROL/**` change, ensuring migration/service edits rebuild and revalidate the finished APK.
 
-Result of this checkpoint: **packager and CI wiring are committed successfully; the first full native APK workflow run is now the active validation step.**
+### First complete native APK build — PASS
+
+GitHub Actions:
+
+```text
+run #5
+run id: 31829954975
+head commit: bb9a07531f82c15569ba7af256595450f26428a1
+conclusion: success
+```
+
+Finished package:
+
+```text
+transmission_4.1.1_x86-64.apk
+11,893,267 bytes
+```
+
+The downloaded finished artifact was independently opened after the successful workflow run and confirmed to be a ZIP-format ASUSTOR APKG with exactly:
+
+```text
+apkg-version     4 bytes, content: 2.0
+control.tar.gz   2,236 bytes
+data.tar.gz      11,927,351 bytes
+```
+
+Round-trip inspection confirmed:
+
+- top-level APK structure is exactly the required three members;
+- `control.tar.gz` contains the expected package metadata and lifecycle scripts;
+- `data.tar.gz` contains the six Transmission binaries and the frozen private runtime/WebUI payload;
+- `CONTROL/` is not present in `data.tar.gz`;
+- packaged `config/` exists only as an empty directory;
+- no `settings.json`, torrent metadata, resume state, DHT state, blocklists or other user state is embedded in the APK;
+- the workflow's APK packaging/validation gate completed successfully.
+
+Artifact:
+
+```text
+transmission-4.1.1-asustor-x86_64-apk
+GitHub artifact id: 9230465775
+```
+
+**NATIVE ASUSTOR APK BUILD: PASS.**
 
 ## Active GitHub layout
 
@@ -208,13 +251,12 @@ scripts/build-asustor-apk.sh
 
 ## Current next step
 
-1. Inspect the automatically triggered workflow for commit `bb9a07531f82c15569ba7af256595450f26428a1`.
-2. If it fails, record the failure here when it changes the diagnosis and fix only the packaging layer; the frozen runtime/payload remains untouched.
-3. If green, update this checkpoint with the workflow run ID, exact APK size and all packaging gates before any NAS installation work.
-4. Inspect the finished APK structure and review the upgrade path against Matt 3.00 one final time.
-5. Only then plan the controlled live upgrade test on the AS-608T.
+1. Perform one final package-level upgrade-path review against Matt's installed Transmission 3.00 behavior, focusing specifically on pre-install backup, package replacement, post-install restore, ownership and service restart semantics.
+2. Verify the finished APK's CONTROL scripts against the actual old package conventions and identify any remaining mismatch before touching the installed package.
+3. If that review is clean, update this checkpoint again and prepare a controlled live upgrade procedure for the AS-608T with an independent backup of the existing Transmission 3.00 config/state before App Central installation.
+4. Only after the backup is independently verified should the first live 3.00 -> 4.1.1 upgrade be attempted.
 
-Do **not** replace the installed App Central Transmission 3.00 package before the APKG migration path and the finished APK have been explicitly validated.
+Do **not** replace the installed App Central Transmission 3.00 package before the final upgrade-path review and independent state backup are complete.
 
 ## Working rule — mandatory checkpoint discipline
 
