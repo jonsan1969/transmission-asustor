@@ -86,7 +86,7 @@ chmod 0755 "$APP_DIR/CONTROL"
 
 # User state must never be shipped in the package. An empty config directory is
 # intentional: pre-install backs up existing state, package replacement creates
-# the target layout, and post-install restores the saved state on upgrade.
+# the target layout, and post-install restores the saved state when one exists.
 rm -rf "$APP_DIR/config"
 mkdir -p "$APP_DIR/config"
 
@@ -101,14 +101,52 @@ if find "$APP_DIR/config" -mindepth 1 -print -quit | grep -q .; then
 fi
 log "PASS: packaged config directory is empty"
 
-# Guard the migration semantics we deliberately inherited from Matt's package.
+# Guard the migration semantics inherited from Matt while also covering old
+# ADM Manual Install, which can replace an existing package while reporting
+# APKG_PKG_STATUS=install rather than upgrade.
 grep -Fq 'transmission-config-backup' "$APP_DIR/CONTROL/pre-install.sh" || fail "pre-install backup logic missing"
 grep -Fq '.apkg-backup-complete' "$APP_DIR/CONTROL/pre-install.sh" || fail "pre-install backup marker missing"
 grep -Fq '.apkg-backup-complete' "$APP_DIR/CONTROL/post-install.sh" || fail "post-install restore marker check missing"
+grep -Fq 'has_existing_state' "$APP_DIR/CONTROL/pre-install.sh" || fail "install-time existing-state detection missing"
+grep -Fq 'install|upgrade' "$APP_DIR/CONTROL/post-install.sh" || fail "post-install install/upgrade restore handling missing"
 for excluded in CONTROL bin lib share web www; do
     grep -Fq "\$BACKUP_DIR/$excluded" "$APP_DIR/CONTROL/pre-install.sh" || fail "legacy migration exclusion missing: $excluded"
 done
-log "PASS: Matt-compatible upgrade backup/restore guards are present"
+log "PASS: Matt-compatible backup/restore plus Manual Install state detection are present"
+
+log "=== LIFECYCLE REGRESSION TEST ==="
+LIFECYCLE="$WORK/lifecycle-test"
+OLD_PKG="$LIFECYCLE/old-package"
+TEMP_DIR="$LIFECYCLE/temp"
+rm -rf "$LIFECYCLE"
+mkdir -p "$OLD_PKG/config/torrents" "$OLD_PKG/config/resume" "$TEMP_DIR"
+printf '%s\n' '{"rpc-port":9091}' > "$OLD_PKG/config/settings.json"
+printf '%s\n' 'torrent-state' > "$OLD_PKG/config/torrents/example.torrent"
+printf '%s\n' 'resume-state' > "$OLD_PKG/config/resume/example.resume"
+
+APKG_PKG_DIR="$OLD_PKG" APKG_PKG_STATUS=install APKG_TEMP_DIR="$TEMP_DIR" \
+    "$APP_DIR/CONTROL/pre-install.sh" || fail "Manual Install replacement pre-install regression failed"
+test -f "$TEMP_DIR/transmission-config-backup/.apkg-backup-complete" || fail "Manual Install replacement did not create backup marker"
+test -f "$TEMP_DIR/transmission-config-backup/torrents/example.torrent" || fail "Manual Install replacement did not back up torrent state"
+test -f "$TEMP_DIR/transmission-config-backup/resume/example.resume" || fail "Manual Install replacement did not back up resume state"
+
+rm -rf "$OLD_PKG"
+mkdir -p "$OLD_PKG/config"
+APKG_PKG_DIR="$OLD_PKG" APKG_PKG_STATUS=install APKG_TEMP_DIR="$TEMP_DIR" \
+    "$APP_DIR/CONTROL/post-install.sh" || fail "Manual Install replacement post-install regression failed"
+test -f "$OLD_PKG/config/settings.json" || fail "Manual Install replacement did not restore settings"
+test -f "$OLD_PKG/config/torrents/example.torrent" || fail "Manual Install replacement did not restore torrent state"
+test -f "$OLD_PKG/config/resume/example.resume" || fail "Manual Install replacement did not restore resume state"
+test ! -f "$TEMP_DIR/transmission-config-backup/.apkg-backup-complete" || fail "restore marker was not consumed"
+
+CLEAN_PKG="$LIFECYCLE/clean-package"
+mkdir -p "$CLEAN_PKG"
+APKG_PKG_DIR="$CLEAN_PKG" APKG_PKG_STATUS=install \
+    "$APP_DIR/CONTROL/pre-install.sh" || fail "clean install pre-install regression failed"
+APKG_PKG_DIR="$CLEAN_PKG" APKG_PKG_STATUS=install APKG_TEMP_DIR="$LIFECYCLE/clean-temp" \
+    "$APP_DIR/CONTROL/post-install.sh" || fail "clean install post-install regression failed"
+test -d "$CLEAN_PKG/config" || fail "clean install did not create config directory"
+log "PASS: lifecycle regression covers old-ADM install-labelled replacement and clean install"
 
 # Confirm the package keeps our deliberate improvements over the historical
 # package: true POSIX sh hooks and relocatable private runtime.

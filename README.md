@@ -1,34 +1,58 @@
-# transmission-asustor
+# Transmission 4.1.1 for legacy ASUSTOR x86-64
 
-Modern **Transmission 4.1.1** build for **ASUSTOR x86-64 NAS** systems, with an intentionally old Linux ABI baseline for legacy ADM hardware.
+A reproducible, self-contained **Transmission 4.1.1** build and native **ASUSTOR App Central** package for older x86-64 ADM systems.
+
+The project targets legacy hardware that still has a sufficiently new 64-bit Linux userspace but can no longer use current App Central builds because the system libraries are too old.
+
+## Current status
+
+The runtime and native APK have been physically validated on an **ASUSTOR AS-608T** running legacy ADM with glibc 2.22.
+
+Verified live behavior includes:
+
+- Transmission **4.1.1 (56442e2929)** running from `/usr/local/AppCentral/transmission`
+- daemon identity `admin:administrators`
+- WebUI/RPC on port **9091**
+- Remote GUI compatibility
+- private curl/OpenSSL/C++ runtime loading through relocatable `$ORIGIN/../lib`
+- certificate-verified HTTPS tracker communication
+- restored legacy torrent/resume state
+- real peer upload/seeding from restored torrents
+- tracker-side identification as `Transmission/4.1.1`
+- coexistence with ASUSTOR Download Center's separate Transmission-derived daemon
+
+### Upgrade migration status
+
+The package installs successfully over the historical Matt Transmission 3.00 package, but the first real **ADM Manual Install** replacement exposed an important old-ADM lifecycle quirk: the operation did not automatically restore the existing 3.00 state because the package hooks assumed `APKG_PKG_STATUS=upgrade`.
+
+The lifecycle logic is being hardened so an existing Transmission state is detected and protected even when old ADM labels a manual replacement as `install`.
+
+Until that corrected path has been revalidated, treat the project as **tested but not yet release-final for unattended 3.00 -> 4.1.1 migration**.
+
+See [`docs/PROJECT-STATE.md`](docs/PROJECT-STATE.md) for the authoritative current checkpoint.
 
 ## Build target
 
 - Architecture: **x86-64**
-- Maximum required glibc from the audited bundle: **GLIBC_2.17**
 - Transmission: **4.1.1**
 - OpenSSL: **3.5.7**
 - curl: **8.21.0**
-- Private runtime: curl, OpenSSL, `libstdc++`, `libgcc_s` and bundled CA trust
-- Relocatable private-library lookup via `$ORIGIN/../lib`
+- maximum audited glibc requirement: **GLIBC_2.17**
+- audited C++ requirements: **GLIBCXX_3.4.19**, **CXXABI_1.3.5**
+- private runtime: curl, OpenSSL, `libstdc++`, `libgcc_s`, OpenSSL modules and CA trust
+- private-library lookup: exact relocatable **`$ORIGIN/../lib`**
 
-The GitHub Actions artifact is named:
-
-```text
-transmission-4.1.1-asustor-x86_64-glibc217
-```
+The build deliberately does **not** hard-code `/usr/local/AppCentral/transmission/lib` into the binaries.
 
 ## Compatibility
 
-The technical compatibility contract is:
+The binary compatibility contract is:
 
 ```text
 ASUSTOR x86-64 + glibc >= 2.17
 ```
 
-The project was created for the legacy **AS-6 series**, whose desktop and rack models use a 64-bit Intel Atom platform. The first live validation target is an **AS-608T** running ADM with glibc 2.22.
-
-Expected AS-6 family candidates include:
+The primary physical target is the **AS-608T**. Other 64-bit AS-6 family systems are expected candidates, including:
 
 - AS-602T
 - AS-604T
@@ -37,67 +61,74 @@ Expected AS-6 family candidates include:
 - AS-604RS / AS-604RD
 - AS-609RS / AS-609RD
 
-These models should be treated as **expected compatible until physically tested**. Newer ASUSTOR x86-64 models with a sufficiently new glibc should also satisfy the binary ABI requirement, but App Central package integration may still vary by ADM generation.
+Only the AS-608T has been physically validated so far. Other models should be treated as expected compatible until tested.
 
-The build is **not** for older 32-bit x86 ASUSTOR models such as the AS-2 / AS-3 generation.
+This build is **not** for older 32-bit x86 ASUSTOR models.
 
-## Build status
+## Why the runtime is self-contained
 
-The current build pipeline verifies all of the following before publishing the artifact:
+Legacy ADM releases ship old TLS and C++ libraries. This project avoids depending on them by bundling the modern networking, crypto and C++ runtime needed by Transmission 4.1.1.
 
-- Transmission 4.1.1 compiles successfully with GCC 10 / C++17
-- staged binaries use the private bundle rather than the builder prefix
-- staged `curl` and `transmission-daemon` use relocatable `$ORIGIN/../lib` lookup
-- no `/opt/transmission-deps` runtime dependency leaks into the final bundle
-- bundled CA trust performs a real certificate-verified HTTPS request
+The final bundle is audited so that:
+
+- no builder-only `/opt/transmission-deps` paths leak into the runtime
 - `transmission-daemon --version` runs with `LD_LIBRARY_PATH` unset
-- all staged ELF files pass the configured ABI audit
+- Transmission executables resolve their private libraries through `$ORIGIN/../lib`
+- bundled CA trust performs certificate-verified HTTPS
+- the staged ELF set stays within the configured ABI floor
 
-The Transmission executables currently audit at:
+The old package's insecure `TR_CURL_SSL_NO_VERIFY=1` workaround is intentionally **not** carried forward.
+
+## Native ASUSTOR package
+
+The workflow builds a real APKG 2.0 container with exactly:
 
 ```text
-GLIBC_2.17
-GLIBCXX_3.4.19
-CXXABI_1.3.5
+apkg-version
+control.tar.gz
+data.tar.gz
 ```
 
-The supplied private GCC runtime keeps the bundle independent of an old ADM `libstdc++`.
+The packaged user `config/` directory is intentionally empty. Existing settings, torrent files, resume files, DHT state, statistics and blocklists must come from the installed package during an upgrade; they are never baked into the APK.
 
-## Build strategy
+The package keeps the compatibility-critical behavior of Matt's historical 3.00 package while deliberately improving several implementation details:
 
-The bundle is intentionally self-contained instead of relying on ADM's old SSL/C++ stack. It includes private networking, crypto and C++ runtime libraries plus CA trust and uses a small wrapper for the bundled TLS environment.
+- real POSIX `/bin/sh` lifecycle scripts; no Bash `[[ ... ]]`
+- relocatable `$ORIGIN/../lib` instead of absolute RPATH
+- runtime-derived `TRANSMISSION_WEB_HOME`
+- certificate verification enabled
+- no unconditional historical UDP sysctl tuning
+- explicit migration marker before restore
+- hidden files preserved with `config/.` copy semantics
 
-Historical probe workflows used to establish the toolchain and ABI strategy have been removed from the active Actions list now that the build is reproducible. Their commits and results remain available in Git history and in `docs/BUILD-NOTES.md`.
+## Build pipeline
 
-## NAS validation
+The active GitHub Actions workflow builds and validates:
 
-The standalone artifact must be tested in a **separate directory** before the installed App Central package is touched. Initial validation should include:
+1. the standalone Transmission runtime
+2. ABI and private-library resolution
+3. certificate-verified HTTPS
+4. the stripped release tree
+5. the minimal APKG payload
+6. the native ASUSTOR APK
+7. CONTROL/data separation and lifecycle safety gates
 
-1. `file` and program-interpreter inspection
-2. `ldd` / resolved-library verification
-3. `transmission-daemon --version`
-4. isolated daemon startup with a temporary config and non-conflicting ports
-5. HTTPS/TLS verification
+Important files:
 
-Only after that should an ASUSTOR `.apk` upgrade package be produced.
+- [`scripts/build-transmission-standalone.sh`](scripts/build-transmission-standalone.sh) — reproducible Transmission/runtime build
+- [`scripts/finalize-transmission-release.sh`](scripts/finalize-transmission-release.sh) — final ELF stripping and sanity checks
+- [`scripts/prepare-apkg-payload.sh`](scripts/prepare-apkg-payload.sh) — minimal App Central payload
+- [`scripts/build-asustor-apk.sh`](scripts/build-asustor-apk.sh) — native APKG 2.0 packager and package gates
+- [`.github/workflows/build.yml`](.github/workflows/build.yml) — CI workflow
 
-## Packaging and existing data
+## Project documentation
 
-Matt's original App Central package layout and CONTROL scripts are retained under `package/` as a compatibility reference.
+- [`docs/PROJECT-STATE.md`](docs/PROJECT-STATE.md) — authoritative current state, evidence and exact next step
+- [`docs/BUILD-NOTES.md`](docs/BUILD-NOTES.md) — technical build rationale and ABI findings
+- [`docs/PACKAGING-HISTORY.md`](docs/PACKAGING-HISTORY.md) — historical ASUSTOR/Transmission package analysis
 
-An eventual upgrade must preserve the existing Transmission configuration and state, including settings, `.torrent` files, resume data, DHT state, blocklists and statistics.
+## Licensing
 
-The currently installed AS-608T package had previously been modified locally with:
+The build, packaging and CI tooling authored in this repository is released under the **MIT License**; see [`LICENSE`](LICENSE).
 
-```sh
-TR_CURL_SSL_NO_VERIFY=1; export TR_CURL_SSL_NO_VERIFY
-```
-
-That workaround is **not** part of this rebuild. The new bundle uses proper certificate verification with bundled CA trust.
-
-## Project notes
-
-- `docs/PROJECT-STATE.md` — compact current checkpoint and next step
-- `docs/BUILD-NOTES.md` — durable technical findings and build rationale
-- `scripts/build-transmission-standalone.sh` — reproducible bundle build and audit
-- `.github/workflows/build.yml` — active GitHub Actions build
+Transmission itself is **not relicensed by this repository**. The generated package contains Transmission and third-party runtime components under their respective upstream licenses. The Transmission license notice shipped inside the APK is maintained separately as `package/CONTROL/license.txt`.
