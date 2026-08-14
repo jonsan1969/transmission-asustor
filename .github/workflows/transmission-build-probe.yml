@@ -13,7 +13,7 @@ jobs:
       - name: Pull pinned manylinux2014 build environment
         run: docker pull quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
 
-      - name: Configure Transmission 4.1.1
+      - name: Build private OpenSSL and curl, then configure Transmission 4.1.1
         run: |
           set -euxo pipefail
           docker run --rm \
@@ -26,11 +26,72 @@ jobs:
               source /opt/rh/devtoolset-10/enable
               set -ux
 
+              OPENSSL_VERSION=3.5.7
+              CURL_VERSION=8.21.0
+              PREFIX=/opt/transmission-deps
+
+              export CFLAGS="-O2 -march=x86-64 -mtune=generic"
+              export CXXFLAGS="-O2 -march=x86-64 -mtune=generic"
+              export PKG_CONFIG_PATH="$PREFIX/lib64/pkgconfig:$PREFIX/lib/pkgconfig"
+              export PATH="$PREFIX/bin:$PATH"
+
               echo "=== BUILD ENVIRONMENT ==="
               gcc --version | head -1
               g++ --version | head -1
               cmake --version | head -1
               /lib64/libc.so.6 | head -1 || true
+
+              echo "=== BUILD OPENSSL $OPENSSL_VERSION ==="
+              rm -rf /tmp/openssl-src /tmp/openssl.tar.gz "$PREFIX"
+              mkdir -p "$PREFIX"
+              curl -L --fail --retry 3 \
+                -o /tmp/openssl.tar.gz \
+                "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz"
+              mkdir /tmp/openssl-src
+              tar -xzf /tmp/openssl.tar.gz -C /tmp/openssl-src --strip-components=1
+              cd /tmp/openssl-src
+              ./Configure linux-x86_64 shared no-tests no-docs \
+                --prefix="$PREFIX" \
+                --openssldir="$PREFIX/ssl"
+              make -j"$(nproc)"
+              make install_sw install_ssldirs
+
+              echo "=== OPENSSL RESULT ==="
+              "$PREFIX/bin/openssl" version -a
+              find "$PREFIX" -maxdepth 2 -type f -name "libssl.so*" -o -name "libcrypto.so*" | sort
+
+              echo "=== BUILD CURL $CURL_VERSION ==="
+              rm -rf /tmp/curl-src /tmp/curl.tar.xz
+              curl -L --fail --retry 3 \
+                -o /tmp/curl.tar.xz \
+                "https://curl.se/download/curl-$CURL_VERSION.tar.xz"
+              mkdir /tmp/curl-src
+              tar -xJf /tmp/curl.tar.xz -C /tmp/curl-src --strip-components=1
+              cd /tmp/curl-src
+              LDFLAGS="-L$PREFIX/lib64 -L$PREFIX/lib" \
+              CPPFLAGS="-I$PREFIX/include" \
+              ./configure \
+                --prefix="$PREFIX" \
+                --with-openssl="$PREFIX" \
+                --enable-shared \
+                --disable-static \
+                --disable-ldap \
+                --disable-ldaps \
+                --without-libpsl \
+                --without-zlib \
+                --without-brotli \
+                --without-zstd \
+                --without-libidn2 \
+                --without-nghttp2 \
+                --without-nghttp3 \
+                --without-ngtcp2 \
+                --without-libssh2
+              make -j"$(nproc)"
+              make install
+
+              echo "=== CURL RESULT ==="
+              LD_LIBRARY_PATH="$PREFIX/lib64:$PREFIX/lib" "$PREFIX/bin/curl" --version
+              find "$PREFIX" -maxdepth 2 -type f -name "libcurl.so*" | sort
 
               echo "=== FETCH TRANSMISSION 4.1.1 ==="
               rm -rf /tmp/transmission-src /tmp/transmission-build
@@ -40,10 +101,15 @@ jobs:
               echo "=== CONFIGURE MINIMAL DAEMON BUILD ==="
               cmake -S /tmp/transmission-src -B /tmp/transmission-build \
                 -DCMAKE_BUILD_TYPE=Release \
+                -DCMAKE_PREFIX_PATH="$PREFIX" \
                 -DCMAKE_C_STANDARD=11 \
                 -DCMAKE_CXX_STANDARD=17 \
-                -DCMAKE_C_FLAGS="-O2 -march=x86-64 -mtune=generic" \
-                -DCMAKE_CXX_FLAGS="-O2 -march=x86-64 -mtune=generic" \
+                -DCMAKE_C_FLAGS="$CFLAGS" \
+                -DCMAKE_CXX_FLAGS="$CXXFLAGS" \
+                -DCURL_INCLUDE_DIR="$PREFIX/include" \
+                -DCURL_LIBRARY="$PREFIX/lib/libcurl.so" \
+                -DOPENSSL_ROOT_DIR="$PREFIX" \
+                -DOPENSSL_USE_STATIC_LIBS=FALSE \
                 -DENABLE_DAEMON=ON \
                 -DENABLE_CLI=ON \
                 -DENABLE_UTILS=ON \
@@ -60,5 +126,5 @@ jobs:
                 -DWITH_CRYPTO=openssl
 
               echo "=== CONFIGURE SUCCEEDED ==="
-              cmake -LA -N /tmp/transmission-build | grep -E "^(CMAKE_|ENABLE_|INSTALL_|USE_SYSTEM_|WITH_)" | sort || true
+              cmake -LA -N /tmp/transmission-build | grep -E "^(CMAKE_|CURL_|OPENSSL_|ENABLE_|INSTALL_|USE_SYSTEM_|WITH_)" | sort || true
             '
