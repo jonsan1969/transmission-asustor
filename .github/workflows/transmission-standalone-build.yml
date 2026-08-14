@@ -24,6 +24,7 @@ jobs:
           set -euxo pipefail
           chmod +x scripts/build-transmission-standalone.sh
           docker run --rm \
+            -e MANPATH="" \
             -v "$PWD:/work" \
             -w /work \
             quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77 \
