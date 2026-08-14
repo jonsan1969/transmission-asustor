@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:42 CEST
+Last updated: 2026-08-14 22:51 CEST
 
 ## Goal
 
@@ -173,8 +173,6 @@ This confirms the live package is running the intended 4.1.1 daemon as `admin` f
 
 **LIVE DAEMON PATH / USER / VERSION: PASS.**
 
-A separate `tar -tzf /volume1/Download/transmission-3.00-config-backup.tar.gz` process was still visible from the earlier read-only archive listing; it is unrelated to either daemon and may be allowed to finish or terminated separately if desired.
-
 ## Live HTTPS tracker validation — PASS
 
 Transmission Remote GUI connected to the restored live 4.1.1 instance and showed 533 total torrents. A restored torrent was started and its HTTPS tracker replied successfully. The tracker response was:
@@ -183,7 +181,7 @@ Transmission Remote GUI connected to the restored live 4.1.1 instance and showed
 You last announced 21 s ago. Please respect the min interval.
 ```
 
-The client also displayed the tracker-provided next update interval (~27 minutes). This response is expected for an announce performed too soon and proves that the restored torrent state can perform authenticated/normal HTTPS tracker communication through the packaged curl/OpenSSL/CA runtime; the result is not a TLS failure.
+The client also displayed the tracker-provided next update interval (~27 minutes). This response is expected for an announce performed too soon and proves that the restored torrent state can perform normal HTTPS tracker communication through the packaged curl/OpenSSL/CA runtime; the result is not a TLS failure.
 
 The same Remote GUI session identified the backend as:
 
@@ -200,6 +198,20 @@ During the same live 4.1.1 validation session, a restored torrent obtained a pee
 This is sufficient physical evidence that the restored torrent/resume state is not merely visible in the UI: 4.1.1 can locate the existing payload, use the restored state, establish peer traffic and upload data from the live restored torrent.
 
 **RESTORED RESUME/DATA PATH + LIVE PEER UPLOAD: PASS.**
+
+## Tracker-side client identity / seeding state — PASS
+
+A live private-tracker profile page observed after the restored 4.1.1 instance had announced shows:
+
+```text
+Client: Transmission/4.1.1
+Currently seeding: 116
+Currently leeching: 0
+```
+
+This is independent tracker-side confirmation that the upgraded client is identifying itself as Transmission 4.1.1 and that a substantial set of restored torrents is actively registered as seeding from the live NAS instance.
+
+**TRACKER-SIDE TRANSMISSION 4.1.1 IDENTITY + RESTORED SEEDING STATE: PASS.**
 
 ## Immediate next step
 
