@@ -10,90 +10,88 @@ The goal is not merely to compile Transmission 4.1.1. The produced binaries must
 - kernel 3.12.20
 - glibc 2.22
 
-The resulting App Central package should remain self-contained enough to avoid relying on obsolete ADM networking/crypto libraries where practical.
+The App Central package should remain self-contained enough to avoid relying on obsolete ADM networking/crypto/C++ libraries where practical.
 
-## Why not simply use the original ASUSTOR toolchain?
+## Build environment decision
 
-ASUSTOR's official ADM 2.0 x86-64 cross-toolchain is retained and probed as an ABI/reference source, but modern Transmission requires a substantially newer C++ compiler and C++17 support.
+ASUSTOR's official ADM 2.0 x86-64 cross-toolchain is retained as an ABI/reference source, but its compiler is too old for modern Transmission C++17 code.
 
-Therefore the project moved to a hybrid strategy:
+The selected hybrid strategy is therefore:
 
-- preserve an old userspace/glibc baseline,
-- use a modern-enough compiler,
-- build required modern userland dependencies privately,
-- audit all final ELF symbol requirements.
+- preserve an old Linux/glibc baseline;
+- use a modern-enough compiler;
+- build modern userland dependencies privately;
+- bundle required C++ runtime components privately;
+- audit every final ELF intended for NAS deployment.
 
-The selected experimental environment is manylinux2014 with devtoolset-10/GCC 10.
-
-## manylinux2014 Build Probe
-
-The Transmission Build Probe pins the manylinux2014 image by digest:
+The active environment is pinned manylinux2014 with devtoolset-10 / GCC 10:
 
 ```text
 quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
 ```
 
-Within the container:
+Inside the container:
 
 ```sh
 source /opt/rh/devtoolset-10/enable
 ```
 
-Common compilation flags:
+Common compiler flags:
 
 ```text
 CFLAGS=-O2 -march=x86-64 -mtune=generic
 CXXFLAGS=-O2 -march=x86-64 -mtune=generic
 ```
 
-Private prefix:
+Private dependency prefix during the probe:
 
 ```text
 /opt/transmission-deps
 ```
 
-Environment used to locate private libraries includes:
-
-```text
-PKG_CONFIG_PATH=/opt/transmission-deps/lib64/pkgconfig:/opt/transmission-deps/lib/pkgconfig
-LD_LIBRARY_PATH=/opt/transmission-deps/lib64:/opt/transmission-deps/lib:...
-```
-
 ## OpenSSL 3.5.7
 
-OpenSSL is built from upstream release source with shared libraries and without tests/docs for the probe:
+OpenSSL is built from upstream release source with shared libraries and without tests/docs:
 
 ```text
 ./Configure linux-x86_64 shared no-tests no-docs
 ```
 
-Important build-environment finding: the manylinux2014 image needed additional Perl modules/packages for the selected OpenSSL release. The workflow installs:
+The manylinux2014 image required these extra Perl packages for the selected OpenSSL release:
 
 - `perl-IPC-Cmd`
 - `perl-Time-Piece`
 
-Both are explicitly smoke-tested before building OpenSSL.
+Both are smoke-tested before the OpenSSL build.
 
-A later probe failure showed that a freshly built OpenSSL executable could not locate its private runtime libraries. The workflow therefore sets `LD_LIBRARY_PATH` to include both `$PREFIX/lib64` and `$PREFIX/lib` before using the private tools.
+A prior probe also showed that freshly built OpenSSL tools could not locate their new private runtime libraries. The workflow therefore includes both `$PREFIX/lib64` and `$PREFIX/lib` in `LD_LIBRARY_PATH` during the build.
 
-Relevant historical commits include:
+Historical fixes:
 
-- `0ad89aa274c087fc8b485a1192ad7fe6b4bb7de9` — install OpenSSL Time::Piece Perl dependency
-- `0ddf142f09c9def5c1589e1689d7123d3a064cfc` — fix private OpenSSL runtime library lookup
+- `0ad89aa274c087fc8b485a1192ad7fe6b4bb7de9` — install OpenSSL Time::Piece dependency
+- `0ddf142f09c9def5c1589e1689d7123d3a064cfc` — fix private OpenSSL runtime lookup
 
 ## curl 8.21.0
 
-curl is built against the private OpenSSL prefix with a deliberately reduced feature/dependency set for the initial probe.
+curl is built against the private OpenSSL prefix with a deliberately reduced initial dependency set.
 
-Disabled/omitted in the current probe include LDAP/LDAPS and optional libpsl, zlib, brotli, zstd, libidn2, nghttp2, nghttp3, ngtcp2 and libssh2 integrations.
+Disabled/omitted for the probe:
 
-The immediate goal is to establish a minimal, controllable HTTPS-capable libcurl suitable for Transmission before deciding which optional features belong in the final package.
+- LDAP/LDAPS
+- libpsl
+- zlib
+- brotli
+- zstd
+- libidn2
+- nghttp2/nghttp3
+- ngtcp2
+- libssh2
 
-## Transmission 4.1.1 configure profile
+The immediate purpose is a small, controllable HTTPS-capable libcurl suitable for Transmission. Optional features can be revisited after NAS runtime validation.
 
-Current probe configuration is focused on daemon/CLI functionality and disables desktop frontends and tests.
+## Transmission 4.1.1 configuration
 
-Notable settings:
+Current probe profile:
 
 ```text
 CMAKE_BUILD_TYPE=Release
@@ -115,19 +113,15 @@ WITH_SYSTEMD=OFF
 WITH_CRYPTO=openssl
 ```
 
-The private curl and OpenSSL locations are passed explicitly to CMake.
+Private curl and OpenSSL paths are explicitly passed to CMake.
 
-Commit `016c3df27df5732ce2ea67d19eecf2ae5ed5d1f5` extended the probe from configuration-only testing into actual Transmission compilation plus ELF ABI auditing.
+Commit `016c3df27df5732ce2ea67d19eecf2ae5ed5d1f5` extended the configuration probe into actual Transmission compilation plus ELF auditing.
 
 ## GCC 10 vs Transmission 4.1.1: `is_ipv6_6to4()`
 
-The first actual `libtransmission` compilation exposed a source/toolchain compatibility problem in:
+Initial `libtransmission` compilation failed in `libtransmission/net.h` because upstream 4.1.1 declares this method `constexpr` while the old glibc `htons()` implementation expands through code GCC 10 rejects in a constexpr function.
 
-```text
-libtransmission/net.h
-```
-
-Upstream 4.1.1 defines:
+Upstream form:
 
 ```cpp
 [[nodiscard]] constexpr bool is_ipv6_6to4() const noexcept
@@ -136,41 +130,176 @@ Upstream 4.1.1 defines:
 }
 ```
 
-With GCC 10 plus the old glibc headers, `htons()` expands through code that causes GCC to report:
+Observed compiler error included:
 
 ```text
 error: uninitialized variable '__v' in 'constexpr' function
 ```
 
-This is a compile-time constexpr compatibility issue, not evidence of an OpenSSL/curl/CMake/linker failure.
-
-Chosen workaround: remove `constexpr` from this one function in the checked-out Transmission source during the probe. Do not carry a broad warning suppression or unrelated source changes.
-
-The workflow first verifies the expected signature with `grep -q`, then applies the one-line `sed` patch. If upstream source changes, the probe fails rather than silently modifying an unexpected line.
+Chosen workaround: remove `constexpr` from this one method only. The workflow first verifies the expected signature and then patches it, so an upstream source change fails loudly instead of silently editing the wrong code.
 
 Commit:
 
 `0a751f7da64ac618acfbd565eb5823e06eed8db9` — Fix Transmission 4.1.1 GCC 10 constexpr build failure
 
+GitHub Actions run #7 then compiled Transmission successfully and executed `transmission-daemon --version` successfully inside the builder.
+
 ## ABI audit philosophy
 
-Passing compilation is only the first gate. For every Transmission executable and every private shared dependency intended for the final bundle, inspect:
+Passing compilation is only the first gate. For every Transmission executable and every private shared dependency intended for the final bundle inspect:
 
 1. ELF architecture/type (`file`)
 2. program interpreter (`readelf -l`)
 3. runtime dependencies (`readelf -d`, `NEEDED`)
-4. `RPATH`/`RUNPATH`
-5. highest required `GLIBC_*` symbol
-6. highest required `GLIBCXX_*` symbol
-7. highest required `CXXABI_*` symbol
+4. `RPATH` / `RUNPATH`
+5. highest required `GLIBC_*`
+6. highest required `GLIBCXX_*`
+7. highest required `CXXABI_*`
 
-The AS-608T has glibc 2.22, so a generated executable/library requiring a newer GLIBC symbol is not acceptable even if it builds and runs inside GitHub Actions.
+The AS-608T has glibc 2.22. Any deliverable ELF requiring GLIBC newer than 2.22 is an automatic failure.
 
-Likewise, C++ runtime requirements must be satisfied deliberately in the standalone/private bundle; do not assume the NAS system `libstdc++` is new enough.
+C++ runtime requirements are handled differently: record GLIBCXX/CXXABI requirements and satisfy them deliberately by shipping a compatible private `libstdc++.so.6`/`libgcc_s.so.1` rather than assuming ADM's versions are sufficient.
+
+## Hard ABI gate added — 2026-08-14
+
+The initial audit printed symbol floors only to the Actions log, meaning a green build did not by itself prove AS-608T compatibility.
+
+The Build Probe was hardened in commit:
+
+`0af2fb935a5c03b04f42c7b8a51c0dd6c7898fee` — Gate ABI audit at GLIBC 2.22 and upload report
+
+The workflow now:
+
+- sets `TARGET_GLIBC=2.22`;
+- audits each generated Transmission executable and selected private shared dependency;
+- fails if any audited ELF requires a GLIBC symbol newer than 2.22;
+- records GLIBCXX/CXXABI maxima diagnostically;
+- writes `abi-audit.txt`;
+- uploads it as Actions artifact `transmission-abi-audit` even when the build/audit step fails.
+
+Commit `d0aa327d8ce54a66d4b371f50fe22891d1593d1e` additionally enables a push trigger limited to changes of the probe workflow itself, while retaining manual `workflow_dispatch`.
+
+## ABI result — GitHub Actions run #8
+
+Run ID:
+
+```text
+31774327556
+```
+
+Head commit:
+
+```text
+d0aa327d8ce54a66d4b371f50fe22891d1593d1e
+```
+
+Result: **success**, including the hard GLIBC gate and ABI artifact upload.
+
+All six Transmission executables reported exactly:
+
+```text
+max GLIBC:   GLIBC_2.17
+max GLIBCXX: GLIBCXX_3.4.19
+max CXXABI:  CXXABI_1.3.5
+```
+
+Executables:
+
+- `transmission-cli`
+- `transmission-daemon`
+- `transmission-create`
+- `transmission-edit`
+- `transmission-remote`
+- `transmission-show`
+
+Private dependency results:
+
+```text
+libcrypto.so.3   max GLIBC_2.17
+libssl.so.3      max GLIBC_2.17
+libcurl.so.4.8.0 max GLIBC_2.17
+```
+
+Thus the current compiler/dependency strategy has a comfortable GLIBC margin against the NAS target: generated code requires at most GLIBC 2.17 while the AS-608T provides GLIBC 2.22.
+
+The report artifact for this run is named:
+
+```text
+transmission-abi-audit
+```
+
+## Runtime dependencies exposed by the successful audit
+
+The Transmission executables currently declare these important `NEEDED` entries:
+
+```text
+libcurl.so.4
+libssl.so.3
+libcrypto.so.3
+libstdc++.so.6
+libgcc_s.so.1
+libpthread.so.0
+libm.so.6
+libc.so.6
+```
+
+The first five require deliberate bundle/runtime treatment. Normal glibc-family libraries should remain system-provided unless NAS testing proves otherwise.
+
+The generated Transmission executables currently contain this build-only RPATH:
+
+```text
+/opt/transmission-deps/lib:/opt/transmission-deps/lib64:
+```
+
+This is unsuitable for the NAS and is the next packaging issue to solve.
+
+## Standalone bundle design requirements
+
+Before creating an ASUSTOR package, produce a standalone test artifact with a layout conceptually like:
+
+```text
+transmission-standalone/
+  bin/
+    transmission-daemon
+    transmission-cli
+    transmission-remote
+    transmission-create
+    transmission-edit
+    transmission-show
+  lib/
+    libcurl.so.4
+    libssl.so.3
+    libcrypto.so.3
+    libstdc++.so.6
+    libgcc_s.so.1
+  share/
+    ... Transmission web assets ...
+```
+
+Exact installed paths should follow Transmission's CMake install result rather than being guessed where practical.
+
+The staged binaries must use a NAS-safe private-library strategy. Preferred direction is an install-time relative RPATH such as:
+
+```text
+$ORIGIN/../lib
+```
+
+A wrapper that sets `LD_LIBRARY_PATH` is a fallback, not the first choice.
+
+The bundle phase must also:
+
+- copy the GCC 10 runtime `libstdc++.so.6` and `libgcc_s.so.1` from the selected devtoolset;
+- audit those copied runtime libraries for GLIBC requirements;
+- re-audit every ELF in the staged bundle;
+- smoke-test `transmission-daemon --version` from the staged tree without relying on `/opt/transmission-deps`;
+- verify the final RPATH/RUNPATH and resolved dependency set;
+- archive/upload the standalone tree as an Actions artifact.
+
+Do not treat the build-tree ABI pass as the final package audit; the staged bundle is a separate release gate.
 
 ## Installed NAS Transmission processes observed during investigation
 
-Live process inspection showed two independent Transmission-based services:
+Live inspection showed two independent services:
 
 ```text
 root  /usr/local/AppCentral/download-center/bin/transmissiond --no-utp --config-dir /usr/local/AppCentral/download-center/etc --no-watch-dir
@@ -184,13 +313,11 @@ The App Central Transmission daemon was observed listening on:
 0.0.0.0:53297
 ```
 
-This matters for later smoke testing and process shutdown/startup. Download Center must not be mistaken for the package being rebuilt.
+Download Center must not be mistaken for the package being rebuilt during later stop/start testing.
 
 ## Upgrade-data preservation
 
-The installed Transmission data is valuable and must not be recreated blindly during package testing. The rebuild must preserve existing configuration/state including torrent/resume data.
-
-Before any real App Central replacement, verify the final CONTROL scripts and package lifecycle behavior against Matt's original package so stop/start/upgrade semantics do not delete or overwrite the user's existing config.
+The installed Transmission data is valuable and must not be recreated blindly. Before any App Central replacement, verify final CONTROL scripts and lifecycle behavior against Matt's original package so stop/start/upgrade actions do not delete or overwrite existing configuration, torrent or resume state.
 
 ## TLS workaround to retire
 
@@ -200,14 +327,12 @@ The user's installed package had a local 2022 modification:
 TR_CURL_SSL_NO_VERIFY=1; export TR_CURL_SSL_NO_VERIFY
 ```
 
-This is specifically excluded from the rebuild. Proper CA validation is part of the modernization goal.
+This is explicitly excluded from the rebuild. Proper CA validation is part of the modernization goal.
 
 ## Workflow/session discipline
 
-For future work:
-
-- GitHub Actions is the canonical home of raw build logs.
-- `PROJECT-STATE.md` is the canonical short checkpoint.
+- GitHub Actions is the canonical home of raw build logs/artifacts.
+- `PROJECT-STATE.md` is the canonical compact checkpoint.
 - `BUILD-NOTES.md` records durable technical rationale/findings.
-- After a meaningful build result, source compatibility discovery, packaging decision or NAS validation step, update these notes before considering the step closed.
-- When a chat thread becomes large, a new thread should begin by reading these files and the most recent relevant commits/workflow runs instead of reconstructing the project from pasted logs.
+- After a meaningful build result, source-compatibility discovery, packaging decision or NAS validation step, update these notes before considering the step closed.
+- When a chat thread becomes large, begin the next session by reading these files and the latest relevant commits/workflow runs instead of reconstructing history from pasted logs.
