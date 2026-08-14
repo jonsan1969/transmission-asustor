@@ -10,6 +10,8 @@ on:
       - scripts/build-transmission-standalone.sh
       - scripts/finalize-transmission-release.sh
       - scripts/prepare-apkg-payload.sh
+      - scripts/build-asustor-apk.sh
+      - package/CONTROL/**
 
 jobs:
   build:
@@ -32,6 +34,13 @@ jobs:
             quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77 \
             /bin/bash -lc '/work/scripts/build-transmission-standalone.sh && /work/scripts/finalize-transmission-release.sh && /work/scripts/prepare-apkg-payload.sh'
 
+      - name: Build and validate native ASUSTOR APK
+        run: |
+          set -euxo pipefail
+          chmod +x scripts/build-asustor-apk.sh
+          sudo env ROOT="$PWD" PAYLOAD="$PWD/out/transmission-apkg-payload" CONTROL_SRC="$PWD/package/CONTROL" scripts/build-asustor-apk.sh
+          sudo chown "$USER:$USER" transmission_4.1.1_x86-64.apk asustor-apk-check.txt
+
       - name: Upload ASUSTOR x86-64 golden standalone bundle
         if: success()
         uses: actions/upload-artifact@v7
@@ -46,6 +55,14 @@ jobs:
         with:
           name: transmission-4.1.1-asustor-x86_64-apkg-payload
           path: transmission-apkg-payload.tar.gz
+          if-no-files-found: error
+
+      - name: Upload native ASUSTOR APK
+        if: success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: transmission-4.1.1-asustor-x86_64-apk
+          path: transmission_4.1.1_x86-64.apk
           if-no-files-found: error
 
       - name: Upload runtime diagnostics
@@ -78,4 +95,12 @@ jobs:
         with:
           name: transmission-asustor-x86_64-apkg-payload-check
           path: apkg-payload-check.txt
+          if-no-files-found: warn
+
+      - name: Upload native APK diagnostics
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: transmission-asustor-x86_64-apk-check
+          path: asustor-apk-check.txt
           if-no-files-found: warn
