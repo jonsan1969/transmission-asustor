@@ -38,6 +38,14 @@ jobs:
           path: transmission-standalone.tar.gz
           if-no-files-found: error
 
+      - name: Upload standalone runtime diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transmission-standalone-runtime-check
+          path: standalone-runtime-check.txt
+          if-no-files-found: warn
+
       - name: Upload standalone ABI audit
         if: always()
         uses: actions/upload-artifact@v4
