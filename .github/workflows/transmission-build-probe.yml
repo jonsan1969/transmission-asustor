@@ -29,6 +29,8 @@ jobs:
               OPENSSL_VERSION=3.5.7
               CURL_VERSION=8.21.0
               PREFIX=/opt/transmission-deps
+              TARGET_GLIBC=2.22
+              ABI_REPORT=/work/abi-audit.txt
 
               export CFLAGS="-O2 -march=x86-64 -mtune=generic"
               export CXXFLAGS="-O2 -march=x86-64 -mtune=generic"
@@ -151,30 +153,71 @@ jobs:
               test -n "$DAEMON"
               "$DAEMON" --version
 
-              echo "=== ELF ABI AUDIT: TRANSMISSION EXECUTABLES ==="
-              while IFS= read -r elf; do
-                if file "$elf" | grep -q "ELF 64-bit"; then
-                  echo "--- $elf ---"
+              : > "$ABI_REPORT"
+              ABI_FAIL=0
+
+              audit_elf() {
+                elf="$1"
+                section="$2"
+                if ! file "$elf" | grep -q "ELF 64-bit"; then
+                  return
+                fi
+
+                max_glibc=$(strings "$elf" | grep -oE "GLIBC_[0-9.]+" | sed "s/^GLIBC_//" | sort -V | tail -1 || true)
+                max_glibcxx=$(strings "$elf" | grep -oE "GLIBCXX_[0-9.]+" | sed "s/^GLIBCXX_//" | sort -V | tail -1 || true)
+                max_cxxabi=$(strings "$elf" | grep -oE "CXXABI_[0-9.]+" | sed "s/^CXXABI_//" | sort -V | tail -1 || true)
+
+                {
+                  echo "=== $section ==="
+                  echo "file: $elf"
                   file "$elf"
                   readelf -l "$elf" | grep "Requesting program interpreter" || true
                   readelf -d "$elf" | grep -E "NEEDED|RPATH|RUNPATH" || true
-                  echo "max GLIBC:    $(strings "$elf" | grep -oE "GLIBC_[0-9.]+" | sort -V | tail -1 || true)"
-                  echo "max GLIBCXX:  $(strings "$elf" | grep -oE "GLIBCXX_[0-9.]+" | sort -V | tail -1 || true)"
-                  echo "max CXXABI:   $(strings "$elf" | grep -oE "CXXABI_[0-9.]+" | sort -V | tail -1 || true)"
+                  echo "max GLIBC:    ${max_glibc:+GLIBC_}$max_glibc"
+                  echo "max GLIBCXX:  ${max_glibcxx:+GLIBCXX_}$max_glibcxx"
+                  echo "max CXXABI:   ${max_cxxabi:+CXXABI_}$max_cxxabi"
+                  echo
+                } | tee -a "$ABI_REPORT"
+
+                if [ -n "$max_glibc" ] && [ "$(printf "%s\n%s\n" "$TARGET_GLIBC" "$max_glibc" | sort -V | tail -1)" != "$TARGET_GLIBC" ]; then
+                  echo "ABI ERROR: $elf requires GLIBC_$max_glibc; AS-608T target is <= GLIBC_$TARGET_GLIBC" | tee -a "$ABI_REPORT"
+                  ABI_FAIL=1
                 fi
+              }
+
+              echo "=== ELF ABI AUDIT: TRANSMISSION EXECUTABLES ==="
+              while IFS= read -r elf; do
+                audit_elf "$elf" "TRANSMISSION EXECUTABLE"
               done < <(find /tmp/transmission-build -type f -name "transmission-*" -perm /111 | sort)
 
               echo "=== ELF ABI AUDIT: PRIVATE DEPENDENCIES ==="
               while IFS= read -r elf; do
-                if file "$elf" | grep -q "ELF 64-bit"; then
-                  echo "--- $elf ---"
-                  file "$elf"
-                  readelf -d "$elf" | grep -E "NEEDED|RPATH|RUNPATH" || true
-                  echo "max GLIBC:    $(strings "$elf" | grep -oE "GLIBC_[0-9.]+" | sort -V | tail -1 || true)"
-                  echo "max GLIBCXX:  $(strings "$elf" | grep -oE "GLIBCXX_[0-9.]+" | sort -V | tail -1 || true)"
-                  echo "max CXXABI:   $(strings "$elf" | grep -oE "CXXABI_[0-9.]+" | sort -V | tail -1 || true)"
-                fi
+                audit_elf "$elf" "PRIVATE DEPENDENCY"
               done < <(find "$PREFIX/lib" "$PREFIX/lib64" -maxdepth 1 -type f \( -name "*.so" -o -name "*.so.*" \) 2>/dev/null | sort)
+
+              {
+                echo "=== ABI AUDIT SUMMARY ==="
+                echo "AS-608T GLIBC ceiling: GLIBC_$TARGET_GLIBC"
+                if [ "$ABI_FAIL" -eq 0 ]; then
+                  echo "GLIBC gate: PASS"
+                else
+                  echo "GLIBC gate: FAIL"
+                fi
+                echo "GLIBCXX/CXXABI values are diagnostic; the final private bundle must supply a compatible C++ runtime deliberately."
+              } | tee -a "$ABI_REPORT"
+
+              if [ "$ABI_FAIL" -ne 0 ]; then
+                echo "::error::One or more deliverable ELF files exceed the AS-608T GLIBC_$TARGET_GLIBC ceiling"
+                exit 1
+              fi
 
               echo "=== BUILD + ABI AUDIT SUCCEEDED ==="
             '
+
+      - name: Upload ABI audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transmission-abi-audit
+          path: abi-audit.txt
+          if-no-files-found: warn
