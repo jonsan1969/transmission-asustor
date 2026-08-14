@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:39 CEST
+Last updated: 2026-08-14 22:42 CEST
 
 ## Goal
 
@@ -193,12 +193,19 @@ Transmission 4.1.1 (56442e2929) on 192.168.1.160:9091
 
 **RESTORED TORRENT + HTTPS TRACKER COMMUNICATION: PASS.**
 
+## Live restored-torrent peer upload — PASS
+
+During the same live 4.1.1 validation session, a restored torrent obtained a peer and the user observed actual upload traffic while seeding. The peer session was short-lived, but the upload counter moved while the restored torrent was active.
+
+This is sufficient physical evidence that the restored torrent/resume state is not merely visible in the UI: 4.1.1 can locate the existing payload, use the restored state, establish peer traffic and upload data from the live restored torrent.
+
+**RESTORED RESUME/DATA PATH + LIVE PEER UPLOAD: PASS.**
+
 ## Immediate next step
 
-1. Verify restored download paths and resume behavior are correct for at least one existing torrent.
-2. Allow a normal tracker announce interval or test another existing torrent to confirm a normal success response / peer activity where available.
-3. Inspect ADM/App Central/package-manager evidence to determine why Manual Install skipped automatic migration.
-4. Fix/rebuild the lifecycle hooks so future 3.00 -> 4.1.1 Manual Install performs migration automatically before release.
+1. Inspect ADM/App Central/package-manager evidence to determine why Manual Install skipped automatic migration.
+2. Fix/rebuild the lifecycle hooks so future 3.00 -> 4.1.1 Manual Install performs migration automatically before release.
+3. Revalidate the corrected upgrade path before considering the APK release-ready.
 
 ## Working rule — mandatory checkpoint discipline
 
