@@ -42,8 +42,9 @@ jobs:
               /lib64/libc.so.6 | head -1 || true
 
               echo "=== INSTALL BUILD PREREQUISITES ==="
-              yum -y install perl-IPC-Cmd
+              yum -y install perl-IPC-Cmd perl-Time-Piece
               perl -MIPC::Cmd -e "print qq(IPC::Cmd OK\n)"
+              perl -MTime::Piece -e "print qq(Time::Piece OK\n)"
 
               echo "=== BUILD OPENSSL $OPENSSL_VERSION ==="
               rm -rf /tmp/openssl-src /tmp/openssl.tar.gz "$PREFIX"
