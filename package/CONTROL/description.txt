@@ -1,0 +1,3 @@
+Transmission 4.1.1 for ASUSTOR x86-64.
+Modern self-contained runtime for older ADM systems with bundled curl/OpenSSL and verified TLS certificate validation.
+Preserves the established App Central configuration and upgrade layout.
