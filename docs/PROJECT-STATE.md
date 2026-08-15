@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-14 22:58 CEST
+Last updated: 2026-08-15 07:10 CEST
 
 ## Goal
 
@@ -63,35 +63,70 @@ Observed Manual Install behavior proves that assumption is unsafe on this ADM ge
 
 Do not claim the exact ADM environment value is independently logged yet; the fix is intentionally status-robust instead of depending on that unproven detail.
 
-## Migration hardening + repo cleanup — CODE CHANGED, CI REQUIRED
+## Migration hardening — CI GREEN
 
-Commit:
+Migration hardening commit:
 
 ```text
 ffd4b5c3cf1508404968cc2d05405518c9c0d225
 ```
 
-Changes:
+CI test-harness fix:
 
-- `pre-install.sh` now treats `install` as clean only when no real existing Transmission state is detected; existing config/root-state is backed up exactly like an upgrade.
+```text
+b2ce9394f2fade97cbdbaeab9485c3875592a252
+```
+
+Changes now covered:
+
+- `pre-install.sh` treats `install` as clean only when no real existing Transmission state is detected; existing config/root-state is backed up exactly like an upgrade.
 - `post-install.sh` restores a completed backup marker for both `install` and `upgrade`; `upgrade` still fails closed if its required marker/temp environment is missing.
-- `scripts/build-asustor-apk.sh` now runs a lifecycle regression test that simulates an **install-labelled replacement with existing settings/torrent/resume state** and a true clean install.
-- `README.md` rewritten around the real current build, native APK and live NAS validation status.
-- root `LICENSE` added: repository-authored build/packaging/CI tooling is MIT-licensed; Transmission and bundled third-party components retain their upstream licenses.
+- `scripts/build-asustor-apk.sh` runs a lifecycle regression that simulates an **install-labelled replacement with existing settings/torrent/resume state** plus a true clean install.
+- CI uses a test-only `chown` shim so Ubuntu can execute the lifecycle regression while separately asserting that the packaged NAS hook still contains `chown -R admin:administrators`.
+
+GitHub Actions **run #9 / run ID 31865580032** completed successfully on commit `b2ce9394f2fade97cbdbaeab9485c3875592a252`.
+
+Native APK artifact:
+
+```text
+Artifact ID: 9241979173
+Artifact name: transmission-4.1.1-asustor-x86_64-apk
+APK filename: transmission_4.1.1_x86-64.apk
+APK size: 11918683 bytes
+APK SHA-256: dfa339d4eb2f7e9509a6d776b58fbfb8bf82f6424a841efa188e86d176702f6c
+```
+
+Physical inspection of the downloaded APK passed:
+
+- top-level members exactly `apkg-version`, `control.tar.gz`, `data.tar.gz`
+- `apkg-version` = `2.0`
+- CONTROL contains config, description, changelog, license, three 90x90 icon assets and all three lifecycle hooks
+- `pre-install.sh`, `post-install.sh`, `start-stop.sh` retain executable mode
+- data payload contains `bin`, `lib`, `share`, and an intentionally empty `config/`
+- no torrent/resume/settings state is shipped in the package
+- packaged migration hooks contain `has_existing_state` and `.apkg-backup-complete` handling
+- post-install handles both `install|upgrade`
+- packaged NAS ownership remains `admin:administrators`
 
 ## Mandatory next step
 
-1. Wait for the workflow triggered by `ffd4b5c3...`.
-2. Require the lifecycle regression, payload/package gates and full native APK build to pass.
-3. Inspect the resulting APK physically.
-4. Update this checkpoint with run ID/artifact/hash/result.
-5. Revalidate the hardened lifecycle on the NAS before calling unattended Manual Install migration release-ready.
+Revalidate the hardened lifecycle **physically on the AS-608T** using ADM Manual Install before calling unattended migration release-ready.
+
+The acceptance test is that installing the run #9 APK over the currently working Transmission installation preserves the existing config and all torrent/resume state automatically, without manual restore or SSH repair. After installation verify at minimum:
+
+1. App Central still reports Transmission 4.1.1.
+2. daemon starts as `admin` from `/usr/local/AppCentral/transmission/bin/transmission-daemon`.
+3. `settings.json`, `torrents/`, and `resume/` survive unchanged.
+4. torrent/resume counts remain 533/533 unless legitimate torrent activity changed them before the test.
+5. WebUI/Remote GUI loads the existing transfer list.
+6. Download Center's separate root `transmissiond` remains untouched.
+7. tracker communication and at least one real transfer/upload still work.
+
+Do not delete the two independent Matt 3.00 backups until this physical migration test is complete.
 
 ## Repository presentation
 
-README and licensing are now populated. GitHub repository metadata currently has no About description/topics configured. The connected GitHub tool does not expose repository-metadata mutation, so About text/topics must be set through GitHub UI unless that capability becomes available.
-
-Suggested About description:
+README and licensing are populated. Suggested About description:
 
 ```text
 Transmission 4.1.1 for legacy ASUSTOR x86-64/ADM — self-contained glibc 2.17 build and native App Central package.
