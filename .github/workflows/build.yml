@@ -14,12 +14,45 @@ on:
       - scripts/build-asustor-apk.sh
       - package/CONTROL/**
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-22.04
 
     steps:
       - uses: actions/checkout@v5
+
+      - name: Restore original Matt legacy ADM icons
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euxo pipefail
+          rm -rf /tmp/adm-icon-recovery
+          mkdir -p /tmp/adm-icon-recovery/artifact /tmp/adm-icon-recovery/apk /tmp/adm-icon-recovery/control
+          curl -fL \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            https://api.github.com/repos/jonsan1969/transmission-asustor/actions/artifacts/9245772467/zip \
+            -o /tmp/adm-icon-recovery/artifact.zip
+          unzip -q /tmp/adm-icon-recovery/artifact.zip -d /tmp/adm-icon-recovery/artifact
+          unzip -q /tmp/adm-icon-recovery/artifact/transmission_4.1.1_x86-64.apk -d /tmp/adm-icon-recovery/apk
+          tar -xzf /tmp/adm-icon-recovery/apk/control.tar.gz -C /tmp/adm-icon-recovery/control
+          cp /tmp/adm-icon-recovery/control/icon.png package/CONTROL/icon.png
+          cp /tmp/adm-icon-recovery/control/icon-enable.png package/CONTROL/icon-enable.png
+          cp /tmp/adm-icon-recovery/control/icon-disable.png package/CONTROL/icon-disable.png
+          test "$(sha256sum package/CONTROL/icon.png | awk '{print $1}')" = 9b08828efa4b7cae7e8329038b363aec397738060f973081898b5ce65b4e7690
+          test "$(sha256sum package/CONTROL/icon-enable.png | awk '{print $1}')" = 9b08828efa4b7cae7e8329038b363aec397738060f973081898b5ce65b4e7690
+          test "$(sha256sum package/CONTROL/icon-disable.png | awk '{print $1}')" = fcc419d0b67c8cea0808c9a696af037067e796e298122ca0b8a3cb52608030b3
+          if ! git diff --quiet -- package/CONTROL/icon.png package/CONTROL/icon-enable.png package/CONTROL/icon-disable.png; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add package/CONTROL/icon.png package/CONTROL/icon-enable.png package/CONTROL/icon-disable.png
+            git commit -m "Restore original Matt legacy ADM icons"
+            git push origin HEAD:main
+          fi
 
       - name: Pull pinned manylinux2014 build environment
         run: docker pull quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77
