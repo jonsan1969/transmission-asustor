@@ -21,7 +21,7 @@ Verified live behavior includes:
 - real peer upload/seeding
 - tracker-side identification as `Transmission/4.1.1`
 - fully automatic **Matt Transmission 3.00 -> 4.1.1** migration through ADM Manual Install
-- preservation of **533 `.torrent` + 533 `.resume`** files and existing settings/state during that migration
+- preservation of existing torrents, resume data, settings and runtime state during migration
 - replacement of the previous 3.00 `start-stop.sh` with the clean 4.1.1 service script during upgrade
 
 The 4.1.1 baseline is therefore considered **functionally complete and physically validated**. The next development step is to port the same proven build/package design to **Transmission 4.1.3 stable** and repeat the same CI and physical NAS validation.
