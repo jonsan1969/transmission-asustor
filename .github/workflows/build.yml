@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/build.yml
       - scripts/build-transmission-standalone.sh
+      - scripts/build-transmission-source-rpc.sh
       - scripts/finalize-transmission-release.sh
       - scripts/prepare-apkg-payload.sh
       - scripts/build-asustor-apk.sh
@@ -26,13 +27,13 @@ jobs:
       - name: Build, audit, finalize and prepare APKG payload
         run: |
           set -euxo pipefail
-          chmod +x scripts/build-transmission-standalone.sh scripts/finalize-transmission-release.sh scripts/prepare-apkg-payload.sh
+          chmod +x scripts/build-transmission-standalone.sh scripts/build-transmission-source-rpc.sh scripts/finalize-transmission-release.sh scripts/prepare-apkg-payload.sh
           docker run --rm \
             -e MANPATH="" \
             -v "$PWD:/work" \
             -w /work \
             quay.io/pypa/manylinux2014_x86_64@sha256:0a42cb7e5f4ba6bbfb8d0a86d1aab0c8876ba9c3be16bd99360ae42bf010ec77 \
-            /bin/bash -lc '/work/scripts/build-transmission-standalone.sh && /work/scripts/finalize-transmission-release.sh && /work/scripts/prepare-apkg-payload.sh'
+            /bin/bash -lc '/work/scripts/build-transmission-source-rpc.sh && /work/scripts/finalize-transmission-release.sh && /work/scripts/prepare-apkg-payload.sh'
 
       - name: Build and validate native ASUSTOR APK
         run: |
