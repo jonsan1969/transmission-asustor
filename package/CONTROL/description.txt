@@ -1,3 +1,1 @@
-Transmission 4.1.1 for ASUSTOR x86-64.
-Modern self-contained runtime for older ADM systems with bundled curl/OpenSSL and verified TLS certificate validation.
-Preserves the established App Central configuration and upgrade layout.
+Transmission is a fast, easy, and free BitTorrent client. This package provides Transmission 4.1.1 for legacy ASUSTOR x86-64 NAS systems.
