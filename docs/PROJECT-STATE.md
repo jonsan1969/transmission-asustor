@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-15 08:50 CEST
+Last updated: 2026-08-15 09:06 CEST
 
 ## Goal
 
@@ -30,7 +30,7 @@ Run #7 produced the corrected native APKG 2.0 with legacy ADM icons and upstream
 
 Live NAS validation after manual state recovery:
 
-- App Central reports `jonsan1969 / 4.1.1`
+- App Central reports 4.1.1
 - daemon: `/usr/local/AppCentral/transmission/bin/transmission-daemon`
 - version: `transmission-daemon 4.1.1 (56442e2929)`
 - daemon user: `admin`
@@ -47,15 +47,15 @@ Exact untouched independent backups:
 /volume1/Download/transmission-3.00-config-backup.tar.gz
 ```
 
-## Automatic migration bug — ROOT CAUSE CLASS IDENTIFIED
+## Automatic migration bug — FIX PHYSICALLY VALIDATED
 
 The first successful old-ADM Manual Install replaced Matt 3.00 with 4.1.1 but produced empty `torrents/` and `resume/` directories. Our lifecycle scripts treated `APKG_PKG_STATUS=install` as an unconditional clean install and only protected state for `upgrade`.
 
-Observed Manual Install behavior proves that assumption is unsafe on this ADM generation. The package replacement can occur through the `install` lifecycle path.
+Migration hardening made lifecycle handling status-robust: existing real state is backed up for install-labelled replacement as well as upgrade, and restored only with a completed backup marker.
 
-Do not claim the exact ADM environment value is independently logged yet; the fix is intentionally status-robust instead of depending on that unproven detail.
+Do not claim the exact ADM environment value is independently logged; the fix deliberately does not depend on it.
 
-## Migration hardening — CI GREEN
+### CI evidence
 
 Migration hardening commit:
 
@@ -82,7 +82,33 @@ APK SHA-256: dfa339d4eb2f7e9509a6d776b58fbfb8bf82f6424a841efa188e86d176702f6c
 
 Physical APK inspection passed: correct APKG 2.0 members, executable lifecycle hooks, empty packaged `config/`, migration markers present, and NAS ownership logic retained.
 
-## Physical validation campaign — IN PROGRESS
+### Physical Matt 3.00 -> 4.1.1 migration — PASS
+
+On 2026-08-15 the NAS was first returned to a verified zero-state: Transmission 4.1.1 and unused Download Center were removed through App Central, leaving no Transmission daemon, package directory, startup residue or PID residue.
+
+Matt Transmission 3.00 was then installed clean from App Central. The clean baseline was `transmission-daemon 3.00 (bb6b5a062e)`, 0 transfers, and a newly generated empty config.
+
+The independent 3.00 config backup was restored while stopped. It contained exactly **533 `.torrent` + 533 `.resume`** files. The old working `CONTROL/start-stop.sh` from the full backup was also restored because that historical 3.00 installation required `TR_CURL_SSL_NO_VERIFY=1` for HTTPS trackers. Matt 3.00 was started and Remote GUI showed all **533 transfers** correctly.
+
+The exact run #9 `transmission_4.1.1_x86-64.apk` was then installed through **ADM Manual Install directly over the working Matt 3.00 installation**, with **no SSH/manual state repair after installation**.
+
+Observed at 2026-08-15 09:05 CEST:
+
+- daemon started automatically as `admin`
+- daemon path remained `/usr/local/AppCentral/transmission/bin/transmission-daemon`
+- version became `transmission-daemon 4.1.1 (56442e2929)`
+- torrent count remained **533**
+- resume count remained **533**
+- Remote GUI immediately showed **533 transfers** with labels/state intact
+- restored config contains historical `dht.dat`, `stats.json`, torrents and resume state; 4.1.1 generated/updated its expected settings files
+- package payload is the new root-owned 4.1.1 tree while config remains `admin:administrators`
+- no manual migration repair was required
+
+**The automatic Matt 3.00 -> 4.1.1 state-preservation bug is therefore physically fixed on the target AS-608T.**
+
+One cosmetic/ADM registry observation remains: after replacement App Central's Installed view displays `Matt / 4.1.1`, even though the Manual Install review dialog correctly showed maintainer `jonsan1969`. Investigate separately; it did not affect runtime migration.
+
+## Physical validation campaign — remaining work
 
 ### Same-version reinstall
 
@@ -92,64 +118,23 @@ ADM Manual Install refuses `4.1.1 -> 4.1.1` before lifecycle execution with:
 The same version of this App has already been installed. (Ref. 6001)
 ```
 
-Therefore same-version reinstall is **N/A on this ADM generation** and is not a valid migration test.
-
-### Pre-wipe 4.1.1 baseline
-
-Before cleanup the active 4.1.1 instance was healthy with **534 torrents + 534 resume files**. A second Transmission-family process was identified as Download Center's independent root-owned `transmissiond`, using `/usr/local/AppCentral/download-center/etc` rather than the App Central Transmission config.
-
-### Uninstall / zero-state result
-
-Transmission 4.1.1 was stopped and removed through App Central. ADM removed `/usr/local/AppCentral/transmission` completely and left no Transmission init/script residue.
-
-Download Center was unused and was also removed through App Central. The resulting zero-state was verified:
-
-- no Transmission daemon process
-- no `transmission` or `download-center` directory under `/usr/local/AppCentral`
-- no related startup entries under `/usr/local/etc`
-- no Transmission PID residue
-- both independent Matt 3.00 backups remained untouched
-
-Download Center does not need to be reinstalled after testing.
-
-### Matt 3.00 clean-install baseline — PASS
-
-Matt Transmission 3.00 was installed fresh from App Central on the verified zero-state NAS.
-
-Observed at 2026-08-15 08:47 CEST:
-
-- daemon: `/usr/local/AppCentral/transmission/bin/transmission-daemon`
-- daemon user: `admin`
-- version: `transmission-daemon 3.00 (bb6b5a062e)`
-- clean WebUI loads successfully with **0 Transfers**
-- clean `config/` contains `blocklists/`, `resume/`, `torrents/`, and newly generated `settings.json`
-- torrent count = 0
-- resume count = 0
-- package root and payload are owned `admin:administrators` on this clean Matt install
-
-The original Matt lifecycle scripts were captured before restoring user state. They use Bash-style `[[ ... ]]` despite `#!/bin/sh`, upgrade-only config copying through `APKG_TEMP_DIR`, unconditional `chown -R admin:administrators`, legacy UDP sysctl tuning, fixed WebUI path, and the same daemon identity/PID/start-stop behavior already used as our compatibility baseline.
+Therefore same-version reinstall is **N/A on this ADM generation**.
 
 ### Install prerequisite dialog finding
 
-A clean **App Central catalog install** of Matt 3.00 displays the legacy prerequisite dialog showing:
+A clean **App Central catalog install** of Matt 3.00 displays the legacy prerequisite dialog showing required `Download` share, port 9091 and optional port-forwarding checkbox.
 
-- required shared folder: `Download`
-- default Transmission port: `9091`
-- optional `Enable port forwarding for Transmission` checkbox
-
-Matt's original `CONTROL/config.json` was captured and its relevant `register` metadata is structurally the same as our 4.1.1 `config.json`: `Download` share-folder, port `[9091]`, boot priority 20/80, and empty enable/restart-service prerequisite arrays.
-
-Therefore do **not** attribute this dialog to Matt's `pre-install.sh`. It may depend on ADM's catalog-install path versus Manual Install. This remains to be tested during the final clean 4.1.1 Manual Install; do not claim the dialog is missing from our package unless that clean test proves it.
+Matt's original `CONTROL/config.json` and our 4.1.1 package have structurally equivalent relevant register metadata. The 3.00 -> 4.1.1 Manual Install replacement showed the unverified-App review dialog rather than the prerequisite dialog. Do not conclude anything is missing until a final **clean 4.1.1 Manual Install** is tested from zero-state.
 
 ## Mandatory next steps
 
-1. Stop the clean Matt 3.00 daemon.
-2. Inspect the two existing Matt 3.00 backup archive layouts before extracting anything.
-3. Restore the known-good Matt 3.00 user state and verify 3.00 operation fully.
-4. Install the run #9 4.1.1 APK through ADM Manual Install with **no manual migration repair**.
-5. Verify automatic state preservation, daemon identity, WebUI/Remote GUI, paths, tracker communication and real transfer activity.
-6. Take a new 4.1.1 backup.
-7. Wipe Transmission again, install 4.1.1 clean via Manual Install, verify genuine blank-install behavior (including whether ADM shows the prerequisite dialog), then restore the 4.1.1 backup and revalidate.
+1. Perform a little runtime sanity checking on the successfully migrated 4.1.1 (WebUI/Remote GUI already passed; tracker/peer activity can be observed if available).
+2. Take a new independent **4.1.1 backup** while stopped, preserving the current known-good migrated state.
+3. Uninstall/wipe Transmission again and verify zero-state.
+4. Install the exact run #9 4.1.1 APK clean through ADM Manual Install.
+5. Verify genuine blank-install behavior: daemon/version/ownership, empty transfer state, WebUI/RPC, and whether ADM shows the prerequisite dialog on a clean Manual Install.
+6. Restore the new 4.1.1 backup while stopped and verify all state returns correctly.
+7. Investigate the cosmetic `Matt / 4.1.1` maintainer display if it persists or matters after clean install.
 
 Do not delete the two independent Matt 3.00 backups until the full campaign is complete.
 
