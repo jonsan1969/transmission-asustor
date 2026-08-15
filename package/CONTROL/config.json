@@ -7,7 +7,6 @@
     "conflicts": [],
     "developer": "https://transmissionbt.com/",
     "maintainer": "Jonas Sandberg",
-    "email": "",
     "website": "https://github.com/jonsan1969/transmission-asustor",
     "architecture": "x86-64",
     "firmware": "2.0"
