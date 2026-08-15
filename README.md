@@ -19,7 +19,7 @@ Verified live behavior includes:
 - private curl/OpenSSL/C++ runtime loading through relocatable `$ORIGIN/../lib`
 - certificate-verified HTTPS tracker communication
 - real peer upload/seeding
-- tracker-side identification as `Transmission/4.1.1`
+- tracker-side identification as `Transmission/4.1.1`, built from upstream revision `56442e2929`
 - fully automatic **Matt Transmission 3.00 -> 4.1.1** migration through ADM Manual Install
 - preservation of existing torrents, resume data, settings and runtime state during migration
 - replacement of the previous 3.00 `start-stop.sh` with the clean 4.1.1 service script during upgrade
