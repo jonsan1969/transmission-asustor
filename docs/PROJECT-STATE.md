@@ -1,6 +1,6 @@
 # Mission Transmission Rebuild — Project State
 
-Last updated: 2026-08-15 09:06 CEST
+Last updated: 2026-08-15 10:xx CEST
 
 ## Goal
 
@@ -34,18 +34,27 @@ Live NAS validation after manual state recovery:
 - daemon: `/usr/local/AppCentral/transmission/bin/transmission-daemon`
 - version: `transmission-daemon 4.1.1 (56442e2929)`
 - daemon user: `admin`
-- WebUI/Remote GUI works on 9091
+- WebUI/Remote GUI works on 9091 when RPC whitelist permits LAN access
 - initial recovery had **533 `.torrent` + 533 `.resume`**; later live baseline reached **534/534** through legitimate torrent activity
 - HTTPS tracker communication works
 - real peer upload/seeding observed from restored state
 - external tracker profile identifies `Transmission/4.1.1`
 
-Exact untouched independent backups:
+Exact untouched independent Matt 3.00 backups:
 
 ```text
 /volume1/Download/transmission-3.00-full-backup.tar.gz
 /volume1/Download/transmission-3.00-config-backup.tar.gz
 ```
+
+Known-good 4.1.1 backups created after the successful migration:
+
+```text
+/volume1/Download/transmission-4.1.1-full-backup.tar.gz
+/volume1/Download/transmission-4.1.1-config-backup.tar.gz
+```
+
+The 4.1.1 config backup was integrity-tested and contains exactly **533 `.torrent` + 533 `.resume`** files.
 
 ## Automatic migration bug — FIX PHYSICALLY VALIDATED
 
@@ -106,37 +115,82 @@ Observed at 2026-08-15 09:05 CEST:
 
 **The automatic Matt 3.00 -> 4.1.1 state-preservation bug is therefore physically fixed on the target AS-608T.**
 
-One cosmetic/ADM registry observation remains: after replacement App Central's Installed view displays `Matt / 4.1.1`, even though the Manual Install review dialog correctly showed maintainer `jonsan1969`. Investigate separately; it did not affect runtime migration.
+## Clean-install RPC behavior — ROOT CAUSE VERIFIED
 
-## Physical validation campaign — remaining work
+A genuine zero-state 4.1.1 Manual Install was physically tested. The package installed and daemon started correctly as 4.1.1 with **0 torrents / 0 resume files**, but both Remote GUI and browser WebUI received **HTTP 403 Forbidden**.
 
-### Same-version reinstall
+The newly generated 4.1.1 config showed:
 
-ADM Manual Install refuses `4.1.1 -> 4.1.1` before lifecycle execution with:
+```text
+"rpc-bind-address": "0.0.0.0",
+"rpc-whitelist": "127.0.0.1,::1",
+"rpc-whitelist-enabled": true,
+```
+
+Therefore the clean package itself was healthy; upstream 4.1.1's RPC whitelist default prevented LAN clients from reaching the daemon.
+
+A fresh official Matt Transmission 3.00 install was then performed from App Central and inspected before any configuration restore. Its clean `settings.json` contained an effective final value:
+
+```text
+"rpc-whitelist": "127.0.0.1",
+"rpc-whitelist-enabled": false,
+```
+
+The Matt `CONTROL` scripts contain no `settings.json`, RPC or whitelist manipulation. Opening Matt's WebUI did not change these values. This proves the LAN-friendly behavior is produced by the Matt 3.00 build/runtime rather than by his APKG lifecycle scripts.
+
+Upstream Transmission has historically used an enabled RPC whitelist, so the working hypothesis is that Matt compiled his ASUSTOR Transmission with a modified daemon default.
+
+## Final clean-install strategy — SOURCE PATCH, not generated settings.json
+
+A temporary implementation that created a minimal clean-install `settings.json` with `rpc-whitelist-enabled=false` was deliberately abandoned. Commit `ff86a78` and all later commits on that line were removed from `main`; `main` was reset to its parent `055a7e4` before implementing the source-level solution.
+
+The selected approach patches Transmission 4.1.1 source **after the official 4.1.1 checkout and before compilation** by adding:
+
+```cpp
+app_defaults_map.try_emplace(TR_KEY_rpc_whitelist_enabled, false);
+```
+
+next to the daemon's compiled RPC defaults in `daemon/daemon.cc`.
+
+Scope of the patch:
+
+- changes only the daemon's default used when creating a fresh configuration
+- does not modify WebUI assets
+- does not modify torrent, peer, tracker, DHT, PEX or µTP logic
+- does not overwrite or reinterpret existing/migrated `settings.json`
+- avoids APKG `post-install.sh` creating a synthetic configuration file
+
+The isolated experiment already proved that a source-patched build still reports exactly:
+
+```text
+transmission-daemon 4.1.1 (56442e2929)
+```
+
+The experiment branch's later red CI runs were caused by branch-specific APK/test-harness plumbing, not by the Transmission source patch itself. For that reason the source patch has now been moved to the normal `main` build path and the branch-specific APK machinery is not part of the release design.
+
+## App Central observations
+
+ADM refuses a same-version `4.1.1 -> 4.1.1` Manual Install before lifecycle execution with:
 
 ```text
 The same version of this App has already been installed. (Ref. 6001)
 ```
 
-Therefore same-version reinstall is **N/A on this ADM generation**.
+A clean App Central catalog install of Matt 3.00 displays the legacy prerequisite dialog showing required `Download` share, port 9091 and optional port-forwarding checkbox.
 
-### Install prerequisite dialog finding
-
-A clean **App Central catalog install** of Matt 3.00 displays the legacy prerequisite dialog showing required `Download` share, port 9091 and optional port-forwarding checkbox.
-
-Matt's original `CONTROL/config.json` and our 4.1.1 package have structurally equivalent relevant register metadata. The 3.00 -> 4.1.1 Manual Install replacement showed the unverified-App review dialog rather than the prerequisite dialog. Do not conclude anything is missing until a final **clean 4.1.1 Manual Install** is tested from zero-state.
+A clean 4.1.1 Manual Install also displayed the prerequisite/review flow correctly. After installation, App Central showed the correct package icon and maintainer, although some descriptive metadata in the Installed view remained stale/legacy ADM information. Restarting App Central corrected at least part of the displayed state. Treat remaining display issues as cosmetic unless runtime behavior is affected.
 
 ## Mandatory next steps
 
-1. Perform a little runtime sanity checking on the successfully migrated 4.1.1 (WebUI/Remote GUI already passed; tracker/peer activity can be observed if available).
-2. Take a new independent **4.1.1 backup** while stopped, preserving the current known-good migrated state.
-3. Uninstall/wipe Transmission again and verify zero-state.
-4. Install the exact run #9 4.1.1 APK clean through ADM Manual Install.
-5. Verify genuine blank-install behavior: daemon/version/ownership, empty transfer state, WebUI/RPC, and whether ADM shows the prerequisite dialog on a clean Manual Install.
-6. Restore the new 4.1.1 backup while stopped and verify all state returns correctly.
-7. Investigate the cosmetic `Matt / 4.1.1` maintainer display if it persists or matters after clean install.
+1. Build the source-patched 4.1.1 through the **normal `main` workflow**.
+2. Require normal ABI, runtime, TLS, APKG and migration gates to stay green.
+3. Install the resulting APK from a verified zero-state.
+4. Before restoring anything, verify the daemon reports `4.1.1 (56442e2929)`, transfer counts are 0/0, and the generated `settings.json` has effective `rpc-whitelist-enabled=false`.
+5. Verify WebUI and Remote GUI work immediately from LAN with no manual edit.
+6. Restore the independent 4.1.1 backup while stopped and verify all **533 transfers** and state return correctly.
+7. Perform final tracker/peer sanity checking and preserve the resulting known-good package details in this file.
 
-Do not delete the two independent Matt 3.00 backups until the full campaign is complete.
+Do not delete the independent 3.00 or 4.1.1 backups until the full campaign is complete.
 
 ## Working rule — mandatory checkpoint discipline
 
