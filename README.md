@@ -18,12 +18,11 @@ Verified live behavior includes:
 - source-level ASUSTOR RPC default matching the LAN-friendly behavior of Matt's historical package
 - private curl/OpenSSL/C++ runtime loading through relocatable `$ORIGIN/../lib`
 - certificate-verified HTTPS tracker communication
-- no `TR_CURL_SSL_NO_VERIFY=1` workaround
 - real peer upload/seeding
 - tracker-side identification as `Transmission/4.1.1`
 - fully automatic **Matt Transmission 3.00 -> 4.1.1** migration through ADM Manual Install
 - preservation of **533 `.torrent` + 533 `.resume`** files and existing settings/state during that migration
-- replacement of Matt's modified `start-stop.sh` with the clean 4.1.1 service script during upgrade
+- replacement of the previous 3.00 `start-stop.sh` with the clean 4.1.1 service script during upgrade
 
 The 4.1.1 baseline is therefore considered **functionally complete and physically validated**. The next development step is to port the same proven build/package design to **Transmission 4.1.3 stable** and repeat the same CI and physical NAS validation.
 
@@ -60,8 +59,6 @@ This build is not for older 32-bit x86 ASUSTOR models.
 Legacy ADM releases ship old TLS and C++ libraries. This project avoids depending on them by bundling the modern networking, crypto and C++ runtime required by Transmission.
 
 The release tree is audited so that no builder-only paths leak into the runtime, `transmission-daemon --version` runs with `LD_LIBRARY_PATH` unset, private libraries resolve through `$ORIGIN/../lib`, bundled CA trust performs certificate-verified HTTPS, and the staged ELF set remains within the configured ABI floor.
-
-The historical `TR_CURL_SSL_NO_VERIFY=1` workaround is intentionally excluded.
 
 ## ASUSTOR package behavior
 
