@@ -57,6 +57,14 @@ The daemon started automatically as `admin`, with 0 torrents and 0 resume files.
 
 WebUI opened normally from the LAN and displayed `Transmission 4.1.1 (56442e2929)`. Remote GUI access also worked without manual configuration edits.
 
+### WebUI cache after switching versions
+
+During the final production restore, the browser initially displayed a partially broken 4.1.1 inspector UI: the tab controls were present but their labels were blank. The daemon, restored state and other WebUI data were otherwise correct.
+
+This was confirmed to be stale browser assets cached from the immediately preceding Transmission 3.00 test installation. A hard refresh (`Ctrl+F5`) loaded the current 4.1.1 WebUI assets and restored the UI completely.
+
+**Testing note:** after switching between substantially different Transmission WebUI versions on the same NAS URL (especially 3.00 -> 4.1.x), perform a hard browser refresh before diagnosing apparent WebUI rendering defects. This is a client-cache issue, not an APKG/config migration failure.
+
 ### Why the RPC source patch exists
 
 An unpatched clean 4.1.1 install generated an enabled localhost-only RPC whitelist and both WebUI and Remote GUI received HTTP 403 from LAN clients.
@@ -230,7 +238,7 @@ Proceed from this frozen 4.1.1 reference baseline rather than redesigning the pa
 5. Reapply/verify the clean-install RPC default patch at the correct 4.1.3 daemon location; do not assume the 4.1.1 source location/context is unchanged.
 6. Run the normal ABI, RPATH, private-runtime, TLS, stripping, payload, icon and APKG gates.
 7. Verify the resulting daemon identity/version and inspect the generated APK before NAS installation.
-8. Repeat physical zero-state clean-install validation on AS-608T / ADM 3.5.9.RWM1, including WebUI and Remote GUI from LAN with no manual settings edit.
+8. Repeat physical zero-state clean-install validation on AS-608T / ADM 3.5.9.RWM1, including WebUI and Remote GUI from LAN with no manual settings edit. Hard-refresh the browser after version switches before treating WebUI rendering anomalies as package defects.
 9. Repeat a real Matt 3.00 -> 4.1.3 migration using the preserved historical backup/state baseline and verify service-script replacement plus state preservation.
 10. Test real HTTPS tracker communication and peer upload/seeding and verify tracker/client identification for 4.1.3.
 11. Update README, PROJECT-STATE, App Central description/changelog and release notes to 4.1.3 only after physical validation succeeds.
@@ -257,6 +265,7 @@ For a fresh conversation, start from this file and treat the following as non-ne
 - Preserve package ID/path/service/migration compatibility with Matt 3.00.
 - Keep TLS certificate verification; never reintroduce `TR_CURL_SSL_NO_VERIFY` into the package.
 - Keep the vendored legacy ADM icons and their integrity checks.
+- Remember that stale browser-cached WebUI assets can survive a 3.00/4.1.x version switch; hard-refresh before debugging UI rendering.
 - Keep the four NAS backups until 4.1.3 clean-install and migration testing are complete.
 - After 4.1.3 release, pursue App Central publication and an ASUSTOR Community Forum announcement.
 
