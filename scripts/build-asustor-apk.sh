@@ -10,14 +10,11 @@ PKG_DIR="$WORK/package"
 APK="$ROOT/transmission_4.1.1_x86-64.apk"
 REPORT="$ROOT/asustor-apk-check.txt"
 
-# Matt's Transmission 3.00 CONTROL icons are the proven 90x90 assets used by
-# the same legacy ADM generation we target. Keep the build reproducible by
-# pinning both the historical package URL and its SHA-256, then extract only
-# the three icon files into our new CONTROL archive.
-LEGACY_APK_URL=${LEGACY_APK_URL:-https://appdownload.asustor.com/0010_54837_1590279933_transmission_3.00_x86-64.apk}
-LEGACY_APK_SHA256=${LEGACY_APK_SHA256:-f2840d2d74141233df160d3f44317d09c0bfc1f272afd8f152bd7c8d6f775cf4}
-LEGACY_APK="$WORK/legacy-transmission-3.00.apk"
-LEGACY_CONTROL="$WORK/legacy-control.tar.gz"
+# The three 90x90 legacy ADM icons are preserved from Matt's official
+# Transmission 3.00 ASUSTOR package. They are vendored in package/CONTROL so
+# historical App Central availability is not a build-time dependency.
+ICON_SHA_ENABLED=9b08828efa4b7cae7e8329038b363aec397738060f973081898b5ce65b4e7690
+ICON_SHA_DISABLED=fcc419d0b67c8cea0808c9a696af037067e796e298122ca0b8a3cb52608030b3
 
 : > "$REPORT"
 
@@ -46,17 +43,15 @@ cp -a "$PAYLOAD/." "$APP_DIR/"
 cp -a "$CONTROL_SRC" "$APP_DIR/CONTROL"
 
 log "=== LEGACY ADM CONTROL ASSETS ==="
-command -v curl >/dev/null 2>&1 || fail "curl is required to fetch pinned legacy icon assets"
-command -v unzip >/dev/null 2>&1 || fail "unzip is required to extract pinned legacy icon assets"
 command -v python3 >/dev/null 2>&1 || fail "python3 is required to validate PNG icon assets"
 
-curl -fsSL "$LEGACY_APK_URL" -o "$LEGACY_APK" || fail "failed to fetch pinned Matt Transmission 3.00 APK"
-ACTUAL_LEGACY_SHA256=$(sha256sum "$LEGACY_APK" | awk '{print $1}')
-[ "$ACTUAL_LEGACY_SHA256" = "$LEGACY_APK_SHA256" ] || fail "legacy APK SHA-256 mismatch"
-unzip -p "$LEGACY_APK" control.tar.gz > "$LEGACY_CONTROL" || fail "could not extract legacy control.tar.gz"
 for icon in icon.png icon-enable.png icon-disable.png; do
-    tar -xOzf "$LEGACY_CONTROL" "./$icon" > "$APP_DIR/CONTROL/$icon" || fail "could not extract legacy $icon"
+    test -s "$APP_DIR/CONTROL/$icon" || fail "vendored legacy icon missing: $icon"
 done
+
+[ "$(sha256sum "$APP_DIR/CONTROL/icon.png" | awk '{print $1}')" = "$ICON_SHA_ENABLED" ] || fail "icon.png SHA-256 mismatch"
+[ "$(sha256sum "$APP_DIR/CONTROL/icon-enable.png" | awk '{print $1}')" = "$ICON_SHA_ENABLED" ] || fail "icon-enable.png SHA-256 mismatch"
+[ "$(sha256sum "$APP_DIR/CONTROL/icon-disable.png" | awk '{print $1}')" = "$ICON_SHA_DISABLED" ] || fail "icon-disable.png SHA-256 mismatch"
 
 python3 - "$APP_DIR/CONTROL" <<'PY' || exit 1
 import pathlib
@@ -76,7 +71,7 @@ for name in ("icon.png", "icon-enable.png", "icon-disable.png"):
         raise SystemExit(f"ERROR: {name} is {width}x{height}, expected 90x90")
     print(f"PASS icon: {name} ({width}x{height}, {len(data)} bytes)")
 PY
-log "PASS: pinned Matt 3.00 legacy ADM icons extracted and validated"
+log "PASS: vendored Matt 3.00 legacy ADM icons verified by SHA-256 and dimensions"
 
 # Match ASUSTOR apkg-tools.py behavior: CONTROL shell hooks are executable
 # in control.tar.gz regardless of their repository file mode.
